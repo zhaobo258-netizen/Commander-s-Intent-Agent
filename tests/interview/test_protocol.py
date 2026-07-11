@@ -225,6 +225,58 @@ def test_structural_answer_updates_only_selected_path_and_fresh_provenance(
     assert updated["user"]["role"] == "社区活动负责人"
 
 
+def test_recording_a_new_answer_reopens_a_previously_confirmed_intent(
+    valid_intent: dict,
+) -> None:
+    valid_intent["confirmed"] = True
+    question = next(
+        question for question in load_questions() if question.path == "/user"
+    )
+
+    updated = record_answer(
+        valid_intent,
+        question,
+        {"role": "新的使用者", "scenario": "新的使用场景"},
+        answer_ref="input:reopened",
+    )
+
+    assert updated["confirmed"] is False
+    assert valid_intent["confirmed"] is True
+
+
+def test_unknown_answer_also_reopens_a_previously_confirmed_intent(
+    valid_intent: dict,
+) -> None:
+    valid_intent["confirmed"] = True
+    question = next(
+        question for question in load_questions() if question.path == "/user"
+    )
+
+    updated = record_answer(
+        valid_intent,
+        question,
+        UNKNOWN_ANSWER,
+        answer_ref="input:unknown",
+    )
+
+    assert updated["confirmed"] is False
+    assert valid_intent["confirmed"] is True
+
+
+def test_display_guidance_must_be_normalized_before_recording(
+    incomplete_intent: dict,
+) -> None:
+    question = _user_question(incomplete_intent)
+
+    with pytest.raises(ContractValidationError, match="display guidance"):
+        record_answer(
+            incomplete_intent,
+            question,
+            question.recommended_answer,
+            answer_ref="input:guidance",
+        )
+
+
 @pytest.mark.parametrize("answer_ref", ["", "   ", None, 42, "\ud800"])
 def test_known_answer_requires_nonempty_utf8_answer_reference(
     incomplete_intent: dict,

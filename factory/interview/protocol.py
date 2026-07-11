@@ -277,6 +277,11 @@ def _validate_question_path(question: object) -> str:
 
 
 def _normalize_structural_answer(path: str, answer: object) -> object:
+    if isinstance(answer, str):
+        raise ContractValidationError(
+            "interview display guidance is not a recordable answer; "
+            "normalize it into the selected section structure first"
+        )
     expected_list = path == "/key_tasks"
     if expected_list:
         if not isinstance(answer, list):
@@ -371,6 +376,9 @@ def record_answer(
 
     updated = deepcopy(dict(intent))
     _replace_pointer(updated, path, normalized_answer)
+    # Any changed answer invalidates the earlier whole-intent confirmation.
+    # The caller must present the revised intent to the user and confirm it again.
+    updated["confirmed"] = False
     updated["provenance"] = [
         record
         for record in updated["provenance"]
