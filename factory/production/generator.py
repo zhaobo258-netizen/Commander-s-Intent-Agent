@@ -141,8 +141,11 @@ def _validate_job_output(job_dir: Path) -> tuple[dict, Path]:
     if path.is_symlink():
         raise UnsafePathError("factory job directory must not be a symlink")
     job = load_job(path)
-    if job["mode"] != "CREATE" or job["status"] != "PRODUCING":
-        raise GateBlockedError("candidate generation requires a CREATE job in PRODUCING")
+    resumable_states = {"PRODUCING", "VALIDATING", "CANDIDATE_READY"}
+    if job["mode"] != "CREATE" or job["status"] not in resumable_states:
+        raise GateBlockedError(
+            "candidate generation requires a CREATE job in a generation state"
+        )
     output_root = path / "output"
     if output_root.is_symlink():
         raise UnsafePathError("job output directory must not be a symlink")

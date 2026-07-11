@@ -71,6 +71,17 @@ def test_generate_runs_create_job_to_candidate_ready(
     }
     assert load_job(job_dir)["status"] == "CANDIDATE_READY"
 
+    assert main([
+        "generate",
+        "--job-dir", str(job_dir),
+        "--intent", str(intent_path),
+        "--design", str(design_path),
+        "--template-root", str(ROOT / "templates" / "agent"),
+    ]) == 0
+    resumed = json.loads(capsys.readouterr().out)
+    assert resumed["manifest_path"] == payload["manifest_path"]
+    assert resumed["job_state"] == "CANDIDATE_READY"
+
 
 def test_blocked_generate_returns_two_without_output(
     tmp_path: Path,

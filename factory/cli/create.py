@@ -93,7 +93,7 @@ def _advance_to_producing(job_dir: Path, job: dict, evidence_ref: str) -> dict:
         "BLUEPRINTING",
         "PRODUCING",
     )
-    if job["status"] == "PRODUCING":
+    if job["status"] in {"PRODUCING", "VALIDATING", "CANDIDATE_READY"}:
         return job
     if job["status"] not in ("NEW", *path):
         raise GateBlockedError(f"CREATE job cannot generate from state {job['status']}")
