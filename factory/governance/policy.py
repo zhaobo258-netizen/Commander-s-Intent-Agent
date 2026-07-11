@@ -8,6 +8,8 @@ from typing import Any
 
 import yaml
 
+from factory.contracts import load_schema
+
 
 _POLICY_KEYS = {
     "schema_version",
@@ -28,6 +30,8 @@ _REQUIRED_CRITICAL_PATHS = (
     "/authority",
     "/acceptance",
 )
+_STATE_MACHINE_POLICY_KEYS = {"schema_version", "modes"}
+_MODE_POLICY_KEYS = {"terminal_states", "transitions"}
 
 
 def _policy_error(message: str) -> ValueError:
@@ -145,11 +149,184 @@ def validate_production_gate_policy(policy: Mapping[str, Any]) -> None:
         raise _policy_error("threshold exceeds the maximum section score")
 
 
+def _state_machine_error(message: str) -> ValueError:
+    return ValueError(f"malformed state-machine policy: {message}")
+
+
+def _require_state_machine_keys(
+    value: Mapping[str, Any],
+    expected: set[str],
+    location: str,
+) -> None:
+    missing = sorted(expected - set(value))
+    if missing:
+        raise _state_machine_error(
+            f"{location} missing keys: {', '.join(missing)}"
+        )
+
+    unknown = sorted(set(value) - expected, key=str)
+    if unknown:
+        rendered = ", ".join(str(key) for key in unknown)
+        raise _state_machine_error(
+            f"{location} has unknown keys: {rendered}"
+        )
+
+
+def _require_state_list(value: object, location: str) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise _state_machine_error(f"{location} must be a non-empty list")
+    if any(not isinstance(item, str) or not item.strip() for item in value):
+        raise _state_machine_error(
+            f"{location} must contain non-empty state names"
+        )
+    if len(value) != len(set(value)):
+        raise _state_machine_error(f"{location} must not contain duplicates")
+    return value
+
+
+def _factory_job_enums() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    try:
+        schema = load_schema("factory-job")
+        modes = schema["properties"]["mode"]["enum"]
+        states = schema["$defs"]["factory_state"]["enum"]
+    except (KeyError, TypeError) as exc:
+        raise _state_machine_error(
+            "factory-job schema does not expose mode and state enums"
+        ) from exc
+
+    if (
+        not isinstance(modes, list)
+        or not modes
+        or any(not isinstance(mode, str) or not mode for mode in modes)
+        or len(modes) != len(set(modes))
+    ):
+        raise _state_machine_error("factory-job mode enum is invalid")
+    if (
+        not isinstance(states, list)
+        or not states
+        or any(not isinstance(state, str) or not state for state in states)
+        or len(states) != len(set(states))
+    ):
+        raise _state_machine_error("factory-job state enum is invalid")
+    return tuple(modes), tuple(states)
+
+
+def validate_state_machine_policy(policy: Mapping[str, Any]) -> None:
+    """Raise ``ValueError`` when a factory state-machine policy is unsafe."""
+    if not isinstance(policy, Mapping):
+        raise _state_machine_error("document must be a mapping")
+    _require_state_machine_keys(policy, _STATE_MACHINE_POLICY_KEYS, "document")
+
+    if policy["schema_version"] != "1.0":
+        raise _state_machine_error("schema_version must be '1.0'")
+
+    expected_modes, factory_states = _factory_job_enums()
+    modes = policy["modes"]
+    if not isinstance(modes, Mapping):
+        raise _state_machine_error("modes must be a mapping")
+
+    missing_modes = sorted(set(expected_modes) - set(modes))
+    unknown_modes = sorted(set(modes) - set(expected_modes), key=str)
+    if missing_modes:
+        raise _state_machine_error(
+            f"modes missing schema modes: {', '.join(missing_modes)}"
+        )
+    if unknown_modes:
+        rendered = ", ".join(str(mode) for mode in unknown_modes)
+        raise _state_machine_error(f"modes contain unknown schema modes: {rendered}")
+
+    known_states = frozenset(factory_states)
+    for mode in expected_modes:
+        mode_policy = modes[mode]
+        location = f"modes.{mode}"
+        if not isinstance(mode_policy, Mapping):
+            raise _state_machine_error(f"{location} must be a mapping")
+        _require_state_machine_keys(mode_policy, _MODE_POLICY_KEYS, location)
+
+        terminal_states = _require_state_list(
+            mode_policy["terminal_states"],
+            f"{location}.terminal_states",
+        )
+        unknown_terminal_states = sorted(set(terminal_states) - known_states)
+        if unknown_terminal_states:
+            raise _state_machine_error(
+                f"{location}.terminal_states contains unknown state: "
+                f"{', '.join(unknown_terminal_states)}"
+            )
+        if "CANCELLED" not in terminal_states:
+            raise _state_machine_error(
+                f"{location}.terminal_states must include CANCELLED"
+            )
+        if "NEW" in terminal_states or "BLOCKED" in terminal_states:
+            raise _state_machine_error(
+                f"{location}.terminal_states cannot include NEW or BLOCKED"
+            )
+
+        transitions = mode_policy["transitions"]
+        if not isinstance(transitions, Mapping) or not transitions:
+            raise _state_machine_error(
+                f"{location}.transitions must be a non-empty mapping"
+            )
+
+        transition_states = set(transitions)
+        unknown_sources = sorted(transition_states - known_states, key=str)
+        if unknown_sources:
+            rendered = ", ".join(str(state) for state in unknown_sources)
+            raise _state_machine_error(
+                f"{location}.transitions contains unknown state: {rendered}"
+            )
+        forbidden_sources = transition_states & (
+            set(terminal_states) | {"BLOCKED", "CANCELLED"}
+        )
+        if forbidden_sources:
+            raise _state_machine_error(
+                f"{location}.transitions defines terminal or automatic state: "
+                f"{', '.join(sorted(forbidden_sources))}"
+            )
+
+        targeted_states: set[str] = set()
+        for source, raw_targets in transitions.items():
+            targets = _require_state_list(
+                raw_targets,
+                f"{location}.transitions.{source}",
+            )
+            unknown_targets = sorted(set(targets) - known_states)
+            if unknown_targets:
+                raise _state_machine_error(
+                    f"{location}.transitions.{source} contains unknown state: "
+                    f"{', '.join(unknown_targets)}"
+                )
+            automatic_targets = set(targets) & {"BLOCKED", "CANCELLED"}
+            if automatic_targets:
+                raise _state_machine_error(
+                    f"{location}.transitions.{source} repeats automatic target: "
+                    f"{', '.join(sorted(automatic_targets))}"
+                )
+            targeted_states.update(targets)
+
+        if "NEW" not in transition_states:
+            raise _state_machine_error(
+                f"{location}.transitions missing transition table for NEW"
+            )
+        missing_tables = sorted(
+            targeted_states - set(terminal_states) - transition_states
+        )
+        if missing_tables:
+            raise _state_machine_error(
+                f"{location}.transitions missing transition tables for states: "
+                f"{', '.join(missing_tables)}"
+            )
+
+
 PolicyValidator = Callable[[Mapping[str, Any]], None]
 POLICY_REGISTRY: dict[str, tuple[str, PolicyValidator]] = {
     "production-gates": (
         "production-gates.yaml",
         validate_production_gate_policy,
+    ),
+    "state-machine": (
+        "state-machine.yaml",
+        validate_state_machine_policy,
     ),
 }
 
