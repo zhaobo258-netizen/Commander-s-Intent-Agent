@@ -216,3 +216,26 @@ def test_symlinked_output_root_is_rejected_without_outside_write(
         generate_candidate(job_dir, production_ready_intent, blueprint, TEMPLATES)
 
     assert not any(outside.iterdir())
+
+
+def test_dead_process_lock_is_recovered_for_resume(
+    tmp_path: Path,
+    production_ready_intent: dict,
+    valid_design: dict,
+    ready_decision,
+) -> None:
+    blueprint = _blueprint(production_ready_intent, valid_design, ready_decision)
+    job_dir = _producing_job(tmp_path)
+    output_root = job_dir / "output"
+    from factory.production.generator import _slug
+
+    lock = output_root / f"{_slug(blueprint['metadata']['name'])}.lock"
+    lock.write_text(
+        json.dumps({"pid": 999_999_999, "created_at": "2026-07-11T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+
+    result = generate_candidate(job_dir, production_ready_intent, blueprint, TEMPLATES)
+
+    assert result.manifest_path.is_file()
+    assert not lock.exists()

@@ -62,6 +62,11 @@ def test_generate_runs_create_job_to_candidate_ready(
     payload = json.loads(capsys.readouterr().out)
     assert payload["job_state"] == "CANDIDATE_READY"
     assert Path(payload["manifest_path"]).is_file()
+    receipt = Path(payload["validation_receipt"])
+    assert receipt.is_file()
+    assert json.loads(receipt.read_text(encoding="utf-8"))["status"] == "verified"
+    manifest = json.loads(Path(payload["manifest_path"]).read_text(encoding="utf-8"))
+    assert manifest["status_layers"]["local_validated"] is False
     assert payload["status_layers"] == {
         "local_generated": True,
         "local_validated": True,
@@ -80,6 +85,7 @@ def test_generate_runs_create_job_to_candidate_ready(
     ]) == 0
     resumed = json.loads(capsys.readouterr().out)
     assert resumed["manifest_path"] == payload["manifest_path"]
+    assert Path(resumed["validation_receipt"]).is_file()
     assert resumed["job_state"] == "CANDIDATE_READY"
 
 

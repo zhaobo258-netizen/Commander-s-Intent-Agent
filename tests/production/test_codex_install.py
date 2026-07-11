@@ -86,5 +86,25 @@ def test_source_symlink_is_rejected(tmp_path: Path, skill_fixture: Path) -> None
         install_codex_skill(link, tmp_path / ".codex", mode="copy")
 
 
+def test_symlinked_sidecar_ancestor_cannot_escape_codex_home(
+    tmp_path: Path,
+    skill_fixture: Path,
+) -> None:
+    codex_home = tmp_path / ".codex"
+    outside = tmp_path / "outside"
+    codex_home.mkdir()
+    outside.mkdir()
+    (codex_home / ".commander-factory").symlink_to(
+        outside,
+        target_is_directory=True,
+    )
+
+    with pytest.raises(UnsafePathError, match="symlink|escapes"):
+        install_codex_skill(skill_fixture, codex_home, mode="symlink")
+
+    assert not any(outside.iterdir())
+    assert not (codex_home / "skills" / "commander-agent-factory").exists()
+
+
 def test_project_skill_validates() -> None:
     assert validate_codex_skill(ROOT / "skills" / "commander-agent-factory") == ()

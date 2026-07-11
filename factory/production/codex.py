@@ -32,6 +32,21 @@ def _target_identity(target: Path) -> Path:
     return target.parent.resolve() / target.name
 
 
+def _reject_unsafe_directory_chain(root: Path, target: Path) -> None:
+    """Reject existing symlinks or non-directories below an owned root."""
+    try:
+        relative = target.relative_to(root)
+    except ValueError as exc:
+        raise UnsafePathError("managed Codex path escapes Codex home") from exc
+    current = root
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise UnsafePathError(f"managed Codex path contains a symlink: {current}")
+        if current.exists() and not current.is_dir():
+            raise UnsafePathError(f"managed Codex path is not a directory: {current}")
+
+
 def _walk_regular(root: Path, *, exclude_marker: bool = False) -> tuple[Path, ...]:
     paths: list[Path] = []
     for current, directories, filenames in os.walk(root, followlinks=False):
@@ -113,6 +128,11 @@ def _paths(source: Path, codex_home: Path) -> tuple[Path, Path, Path]:
     except ValueError as exc:
         raise UnsafePathError("Codex skill target escapes Codex home") from exc
     sidecar = home / ".commander-factory" / "installs" / _NAME / _MARKER
+    _reject_unsafe_directory_chain(home.resolve(), sidecar.parent)
+    try:
+        (sidecar.parent.resolve(strict=False) / sidecar.name).relative_to(home.resolve())
+    except ValueError as exc:
+        raise UnsafePathError("Codex install marker escapes Codex home") from exc
     return source_path, target, sidecar
 
 

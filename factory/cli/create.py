@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import os
+import tempfile
 from collections.abc import Mapping
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
@@ -103,6 +106,35 @@ def _advance_to_producing(job_dir: Path, job: dict, evidence_ref: str) -> dict:
     return job
 
 
+def _write_validation_receipt(job_dir: Path, result) -> Path:
+    receipt_path = Path(job_dir) / "reports" / "candidate-validation.json"
+    manifest_bytes = result.manifest_path.read_bytes()
+    receipt = {
+        "schema_version": "1.0",
+        "status": "verified",
+        "candidate_manifest": str(result.manifest_path),
+        "manifest_sha256": f"sha256:{hashlib.sha256(manifest_bytes).hexdigest()}",
+        "created_paths": list(result.created_paths),
+        "validated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix="candidate-validation.",
+        suffix=".tmp",
+        dir=receipt_path.parent,
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(receipt, stream, ensure_ascii=False, sort_keys=True, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, receipt_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return receipt_path
+
+
 def generate_payload(
     job_dir: Path,
     intent_path: Path,
@@ -136,14 +168,15 @@ def generate_payload(
         job = load_job(job_dir)
     if job["status"] == "PRODUCING":
         job = _save_transition(job_dir, job, "VALIDATING", str(result.manifest_path))
+    validation_receipt = _write_validation_receipt(Path(job_dir), result)
     if not job["status_layers"]["local_validated"]:
-        job = mark_status_layer(job, "local_validated", str(result.manifest_path))
+        job = mark_status_layer(job, "local_validated", str(validation_receipt))
         save_checkpoint(
             job_dir,
             job,
             {
                 "kind": "candidate_validation",
-                "ref": str(result.manifest_path),
+                "ref": str(validation_receipt),
                 "status": "verified",
                 "at": job["updated_at"],
             },
@@ -155,6 +188,7 @@ def generate_payload(
         "job_state": job["status"],
         "output_path": str(result.output_path),
         "manifest_path": str(result.manifest_path),
+        "validation_receipt": str(validation_receipt),
         "created_paths": list(result.created_paths),
         "status_layers": job["status_layers"],
     }

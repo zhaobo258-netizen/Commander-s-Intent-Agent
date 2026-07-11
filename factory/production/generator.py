@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from string import Formatter
+from datetime import datetime, timezone
 
 import yaml
 
@@ -402,6 +403,60 @@ def _existing_result(
     return GenerationResult(output, manifest_path, actual_paths)
 
 
+def _process_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _stale_lock(lock: Path) -> bool:
+    try:
+        loaded = strict_json_loads(lock.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict) or set(loaded) != {"pid", "created_at"}:
+            raise ValueError("invalid lock")
+        pid = loaded["pid"]
+        if isinstance(pid, bool) or not isinstance(pid, int):
+            raise ValueError("invalid pid")
+        return not _process_alive(pid)
+    except (OSError, UnicodeError, ValueError):
+        try:
+            age = datetime.now(timezone.utc).timestamp() - lock.stat().st_mtime
+        except OSError:
+            return False
+        return age >= 300
+
+
+def _acquire_lock(lock: Path) -> int:
+    for attempt in range(2):
+        try:
+            descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            payload = json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+            os.write(descriptor, payload)
+            os.fsync(descriptor)
+            return descriptor
+        except FileExistsError as exc:
+            if attempt == 0 and _stale_lock(lock):
+                try:
+                    lock.unlink()
+                except OSError as unlink_error:
+                    raise FactoryError("could not recover stale candidate lock") from unlink_error
+                continue
+            raise FactoryError("candidate generation is already in progress") from exc
+    raise FactoryError("could not acquire candidate generation lock")
+
+
 def generate_candidate(
     job_dir: Path,
     intent: Mapping,
@@ -424,10 +479,7 @@ def generate_candidate(
     lock_descriptor: int | None = None
     staging: Path | None = None
     try:
-        try:
-            lock_descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        except FileExistsError as exc:
-            raise FactoryError("candidate generation is already in progress") from exc
+        lock_descriptor = _acquire_lock(lock)
         if output.exists() or output.is_symlink():
             raise FactoryError("candidate output collision detected")
         staging = Path(
