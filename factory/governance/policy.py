@@ -473,6 +473,30 @@ POLICY_REGISTRY: dict[str, tuple[str, PolicyValidator]] = {
 }
 
 
+def validate_evaluation_policy(policy: Mapping[str, Any]) -> None:
+    if set(policy) != {"schema_version", "weights", "required_files"}:
+        raise _governance_policy_error("evaluation-policy", "unexpected keys")
+    if policy["schema_version"] != "1.0":
+        raise _governance_policy_error("evaluation-policy", "wrong schema version")
+    weights = policy["weights"]
+    expected = {"intent", "capability", "execution", "outcome", "evolution"}
+    if not isinstance(weights, Mapping) or set(weights) != expected:
+        raise _governance_policy_error("evaluation-policy", "invalid weights")
+    if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in weights.values()) or sum(weights.values()) != 100:
+        raise _governance_policy_error("evaluation-policy", "weights must total 100")
+    files = policy["required_files"]
+    if not isinstance(files, Mapping) or set(files) != {"intent", "blueprint", "readme", "evaluation"}:
+        raise _governance_policy_error("evaluation-policy", "invalid required files")
+    if any(not isinstance(value, str) or not value.strip() for value in files.values()):
+        raise _governance_policy_error("evaluation-policy", "invalid required file path")
+
+
+POLICY_REGISTRY["evaluation-policy"] = (
+    "evaluation-policy.yaml",
+    validate_evaluation_policy,
+)
+
+
 def load_policy(name: str) -> dict:
     """Return a freshly loaded policy validated for its registered shape."""
     try:

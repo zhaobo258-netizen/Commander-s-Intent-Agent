@@ -16,6 +16,7 @@ from factory.cli.create import (
     validate_intent_payload,
 )
 from factory.cli.verify import verify_repository
+from factory.cli.review import review_payload
 from factory.errors import GateBlockedError
 from factory.production.jobs import create_job, load_job
 
@@ -81,6 +82,11 @@ def build_parser() -> argparse.ArgumentParser:
         skill_parser.add_argument("--codex-home", required=True, type=Path)
         if command == "skill-install":
             skill_parser.add_argument("--mode", choices=("copy", "symlink"), default="copy")
+    review_parser = subparsers.add_parser("review")
+    review_parser.add_argument("target", type=Path)
+    review_parser.add_argument("--workshop", required=True, type=Path)
+    review_parser.add_argument("--job-id", required=True)
+    review_parser.add_argument("--name", required=True)
     return parser
 
 
@@ -148,6 +154,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "skill-uninstall":
             _emit(json_text(skill_uninstall_payload(args.source, args.codex_home)), sys.stdout)
+            return 0
+        if args.command == "review":
+            _emit(json_text(review_payload(args.target, args.workshop, args.job_id, args.name)), sys.stdout)
             return 0
     except GateBlockedError as exc:
         _emit_error(exc)
