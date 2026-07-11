@@ -18,7 +18,7 @@ def test_release_runlog_keeps_truth_layers_separate() -> None:
         "installed": False,
         "published": False,
         "real_usage_verified": False,
-        "github_pushed": False,
+        "github_pushed": True,
         "customer_deliverable": False,
     }
     assert "GitHub 主分支" in text
