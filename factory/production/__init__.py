@@ -1,5 +1,6 @@
 """Private production-job persistence APIs."""
 
+from factory.production.blueprint import build_blueprint
 from factory.production.jobs import (
     create_job,
     load_job,
@@ -10,6 +11,7 @@ from factory.production.jobs import (
 
 
 __all__ = [
+    "build_blueprint",
     "create_job",
     "load_job",
     "mark_status_layer",

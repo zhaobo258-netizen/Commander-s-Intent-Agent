@@ -8,6 +8,8 @@ from typing import Any
 import pytest
 import yaml
 
+from factory.governance import evaluate_production_gate, load_policy
+
 
 CONTRACT_FIXTURES = Path(__file__).parent / "fixtures" / "contracts"
 
@@ -23,6 +25,36 @@ def _load_fixture(filename: str) -> Any:
 @pytest.fixture
 def valid_intent() -> dict:
     return copy.deepcopy(_load_fixture("valid-intent.yaml"))
+
+
+@pytest.fixture
+def production_ready_intent(valid_intent: dict) -> dict:
+    intent = copy.deepcopy(valid_intent)
+    policy = load_policy("production-gates")
+    intent["provenance"] = [
+        {
+            "path": path,
+            "source_type": "user_confirmed",
+            "reference": f"fixture-confirmed:{path}",
+        }
+        for path in policy["critical_paths"]
+    ]
+    intent["confirmed"] = True
+    assert evaluate_production_gate(intent, policy).ready is True
+    return intent
+
+
+@pytest.fixture
+def ready_decision(production_ready_intent: dict):
+    return evaluate_production_gate(
+        production_ready_intent,
+        load_policy("production-gates"),
+    )
+
+
+@pytest.fixture
+def blocked_decision(valid_intent: dict):
+    return evaluate_production_gate(valid_intent, load_policy("production-gates"))
 
 
 @pytest.fixture
@@ -42,6 +74,11 @@ def incomplete_intent(valid_intent: dict) -> dict:
 @pytest.fixture
 def valid_blueprint() -> dict:
     return copy.deepcopy(_load_fixture("valid-blueprint.yaml"))
+
+
+@pytest.fixture
+def valid_design() -> dict:
+    return copy.deepcopy(_load_fixture("valid-design.yaml"))
 
 
 @pytest.fixture
