@@ -120,7 +120,7 @@ def _walk_json(value: object):
 def validate_schema_references(schema: Mapping) -> None:
     """Reject dangling or unregistered external schema references."""
     anchors = {
-        anchor
+        anchor: node
         for node in _walk_json(schema)
         if isinstance(node, Mapping)
         for key in ("$anchor", "$dynamicAnchor")
@@ -139,17 +139,23 @@ def validate_schema_references(schema: Mapping) -> None:
                     f"{keyword} must be a string",
                 )
             if reference == "#" or reference.startswith("#/"):
-                resolve_local_reference(schema, reference)
+                target = resolve_local_reference(schema, reference)
             elif reference.startswith("#"):
                 if reference[1:] not in anchors:
                     raise SchemaReferenceError(
                         "dangling-ref",
                         "local schema anchor does not exist",
                     )
+                target = anchors[reference[1:]]
             else:
                 raise SchemaReferenceError(
                     "external-ref",
                     "external schema references require a registered local resource",
+                )
+            if not isinstance(target, (Mapping, bool)):
+                raise SchemaReferenceError(
+                    "invalid-ref-target",
+                    "local schema reference target is not a JSON Schema",
                 )
 
 

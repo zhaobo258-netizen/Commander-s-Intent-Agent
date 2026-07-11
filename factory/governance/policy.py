@@ -329,6 +329,7 @@ def validate_state_machine_policy(
 
     known_states = frozenset(factory_states)
     represented_states = {"BLOCKED", "CANCELLED"}
+    reachable_across_modes: set[str] = set()
     for mode in expected_modes:
         mode_policy = modes[mode]
         location = f"modes.{mode}"
@@ -435,12 +436,27 @@ def validate_state_machine_policy(
             raise _state_machine_error(
                 f"{location}.transitions must reach a reachable successful terminal"
             )
+        unreachable_terminals = sorted(successful_terminals - reachable)
+        if unreachable_terminals:
+            raise _state_machine_error(
+                f"{location}.transitions has unreachable successful terminal: "
+                f"{', '.join(unreachable_terminals)}"
+            )
+        reachable_across_modes.update(reachable)
 
     unrepresented_states = sorted(known_states - represented_states)
     if unrepresented_states:
         raise _state_machine_error(
             "factory-job schema state not represented by any mode: "
             f"{', '.join(unrepresented_states)}"
+        )
+    unreachable_schema_states = sorted(
+        known_states - {"BLOCKED", "CANCELLED"} - reachable_across_modes
+    )
+    if unreachable_schema_states:
+        raise _state_machine_error(
+            "factory-job schema state unreachable across all modes: "
+            f"{', '.join(unreachable_schema_states)}"
         )
 
 

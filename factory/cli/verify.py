@@ -64,6 +64,12 @@ _REQUIRED_PACKAGES = (
     "factory.governance",
     "factory.production",
 )
+_REQUIRED_PACKAGE_FILES = (
+    "factory/cli/__init__.py",
+    "factory/contracts/__init__.py",
+    "factory/governance/__init__.py",
+    "factory/production/__init__.py",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,8 +275,12 @@ def _declares_python_311_floor(requirement: object) -> bool:
         specifiers = SpecifierSet(requirement)
     except InvalidSpecifier:
         return False
-    return specifiers.contains(Version("3.11")) and not specifiers.contains(
-        Version("3.10")
+    return specifiers.contains(
+        Version("3.11"),
+        prereleases=True,
+    ) and _specifier_has_minimum(
+        specifiers,
+        "3.11",
     )
 
 
@@ -397,6 +407,15 @@ def _verify_metadata(
             if isinstance(find_config, Mapping)
             else None
         )
+        where = (
+            find_config.get("where", ["."])
+            if isinstance(find_config, Mapping)
+            else None
+        )
+        if where != ["."]:
+            metadata_failures.append(
+                "invalid:pyproject.toml:package-discovery.where"
+            )
         if not isinstance(excludes, list) or any(
             not isinstance(pattern, str) for pattern in excludes
         ):
@@ -428,6 +447,17 @@ def _verify_metadata(
                 metadata_failures.append(
                     f"invalid:pyproject.toml:package-excluded:{package}"
                 )
+
+        package_dir = (
+            setuptools.get("package-dir")
+            if isinstance(setuptools, Mapping)
+            else None
+        )
+        if package_dir not in (None, {"": "."}):
+            metadata_failures.append("invalid:pyproject.toml:package-dir")
+
+        for relative in _REQUIRED_PACKAGE_FILES:
+            _read_text(root, relative, metadata_failures)
 
         package_requirements = (
             ("factory.contracts", _SCHEMA_PATHS),
@@ -541,9 +571,9 @@ def _verify_metadata(
 
 def _effective_ignore_lines(text: str) -> tuple[str, ...]:
     return tuple(
-        stripped
+        line
         for line in text.splitlines()
-        if (stripped := line.strip()) and not stripped.startswith("#")
+        if line.strip() and not line.startswith("#")
     )
 
 

@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 import sys
+import zipfile
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
@@ -17,6 +18,10 @@ ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY_FILES = (
     "pyproject.toml",
     "factory/__init__.py",
+    "factory/cli/__init__.py",
+    "factory/contracts/__init__.py",
+    "factory/governance/__init__.py",
+    "factory/production/__init__.py",
     "factory/contracts/commander-intent.schema.json",
     "factory/contracts/agent-blueprint.schema.json",
     "factory/contracts/factory-job.schema.json",
@@ -338,6 +343,48 @@ def test_schema_reference_integrity_allows_recursive_local_refs(
     assert report.ok is True, report.failures
 
 
+@pytest.mark.parametrize(
+    ("target_name", "target_value"),
+    [("title", None), ("x-schema-list", [])],
+)
+def test_schema_reference_target_must_itself_be_a_schema(
+    tmp_path: Path,
+    target_name: str,
+    target_value: object,
+) -> None:
+    root = _copy_repository_contract(tmp_path)
+    schema_path = root / "factory/contracts/commander-intent.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    if target_value is not None:
+        schema[target_name] = target_value
+    schema["properties"]["mission"]["$ref"] = f"#/{target_name}"
+    schema_path.write_text(json.dumps(schema), encoding="utf-8")
+
+    report = verify_repository(root)
+
+    assert report.ok is False
+    assert (
+        "malformed:factory/contracts/commander-intent.schema.json:"
+        "invalid-ref-target"
+        in report.failures
+    )
+
+
+def test_schema_reference_target_allows_boolean_schema(tmp_path: Path) -> None:
+    root = _copy_repository_contract(tmp_path)
+    schema_path = root / "factory/contracts/commander-intent.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    schema["$defs"]["allow_anything"] = True
+    schema["$defs"]["boolean_reference"] = {
+        "$ref": "#/$defs/allow_anything"
+    }
+    schema_path.write_text(json.dumps(schema), encoding="utf-8")
+
+    report = verify_repository(root)
+
+    assert report.ok is True, report.failures
+
+
 @pytest.mark.parametrize("array_token", ["-1", "01"])
 def test_schema_reference_integrity_uses_rfc_array_indices(
     tmp_path: Path,
@@ -415,6 +462,20 @@ def test_schema_json_rejects_duplicate_object_keys(tmp_path: Path) -> None:
         ),
         (
             lambda text: text.replace(
+                'requires-python = ">=3.11"',
+                'requires-python = ">=3.0,!=3.10.*"',
+            ),
+            "invalid:pyproject.toml:project.requires-python",
+        ),
+        (
+            lambda text: text.replace(
+                'requires-python = ">=3.11"',
+                'requires-python = ">3.10"',
+            ),
+            "invalid:pyproject.toml:project.requires-python",
+        ),
+        (
+            lambda text: text.replace(
                 '"PyYAML>=6.0"',
                 '"fake-PyYAML>=6.0"',
             ),
@@ -468,6 +529,21 @@ def test_schema_json_rejects_duplicate_object_keys(tmp_path: Path) -> None:
                 'include = ["factory*"]\nexclude = "factory.cli"',
             ),
             "invalid:pyproject.toml:package-discovery.exclude",
+        ),
+        (
+            lambda text: text.replace(
+                'include = ["factory*"]',
+                'include = ["factory*"]\nwhere = ["missing"]',
+            ),
+            "invalid:pyproject.toml:package-discovery.where",
+        ),
+        (
+            lambda text: (
+                text
+                + '\n[tool.setuptools.package-dir]\n'
+                + '"" = "src"\n'
+            ),
+            "invalid:pyproject.toml:package-dir",
         ),
         (
             lambda text: (
@@ -553,6 +629,71 @@ def test_missing_declared_job_template_fails_verification(tmp_path: Path) -> Non
     assert "missing:templates/job/JOB.md.tmpl" in report.failures
 
 
+def test_missing_representative_package_source_fails_verification(
+    tmp_path: Path,
+) -> None:
+    root = _copy_repository_contract(tmp_path)
+    (root / "factory/cli/__init__.py").unlink()
+
+    report = verify_repository(root)
+
+    assert report.ok is False
+    assert "missing:factory/cli/__init__.py" in report.failures
+
+
+def test_nonroot_package_discovery_is_rejected_before_empty_wheel_can_pass(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "source"
+    shutil.copytree(
+        ROOT,
+        root,
+        ignore=shutil.ignore_patterns(
+            ".git",
+            ".pytest_cache",
+            "__pycache__",
+            "*.egg-info",
+            "build",
+        ),
+    )
+    pyproject = root / "pyproject.toml"
+    pyproject.write_text(
+        pyproject.read_text(encoding="utf-8").replace(
+            'include = ["factory*"]',
+            'include = ["factory*"]\nwhere = ["empty"]',
+        ),
+        encoding="utf-8",
+    )
+    (root / "empty").mkdir()
+    wheel_dir = tmp_path / "wheel"
+    wheel_dir.mkdir()
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            str(root),
+            "--no-deps",
+            "--no-build-isolation",
+            "-w",
+            str(wheel_dir),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    wheel = next(wheel_dir.glob("*.whl"))
+    with zipfile.ZipFile(wheel) as archive:
+        assert "factory/__init__.py" not in archive.namelist()
+    report = verify_repository(root)
+    assert report.ok is False
+    assert "invalid:pyproject.toml:package-discovery.where" in report.failures
+
+
 @pytest.mark.parametrize(
     ("relative", "expected"),
     [
@@ -600,6 +741,12 @@ def test_missing_workshop_files_fail_verification(
             "jobs/*\nreviews/*\n!jobs/.gitkeep\n!reviews/.gitkeep\n"
             "jobs/extra-private/*\n"
         ),
+        (
+            " jobs/*\n reviews/*\n !jobs/.gitkeep\n !reviews/.gitkeep\n"
+        ),
+        (
+            "jobs/* \nreviews/* \n!jobs/.gitkeep \n!reviews/.gitkeep \n"
+        ),
     ],
 )
 def test_incorrect_workshop_ignore_rules_fail_semantic_check(
@@ -643,6 +790,15 @@ def test_approved_workshop_rules_match_real_git_privacy_behavior(
     assert ignored("workshop/jobs/.gitkeep") is False
     assert ignored("workshop/reviews/.gitkeep") is False
     assert verify_repository(root).ok is True
+
+    spaced_rules = "".join(
+        f" {rule}\n"
+        for rule in ("jobs/*", "reviews/*", "!jobs/.gitkeep", "!reviews/.gitkeep")
+    )
+    (root / "workshop/.gitignore").write_text(spaced_rules, encoding="utf-8")
+    assert ignored("workshop/jobs/private-job/status.json") is False
+    assert ignored("workshop/reviews/private-review/status.json") is False
+    assert verify_repository(root).ok is False
 
 
 @pytest.mark.parametrize(

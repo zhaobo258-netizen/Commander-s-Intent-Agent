@@ -227,6 +227,19 @@ def test_state_machine_policy_requires_reachable_success_terminal() -> None:
         policy_module.validate_state_machine_policy(malformed)
 
 
+def test_every_success_terminal_must_be_reachable_from_new() -> None:
+    schema = policy_module.load_schema("factory-job")
+    schema["$defs"]["factory_state"]["enum"].append("ARCHIVED")
+    malformed = copy.deepcopy(_state_machine_policy())
+    malformed["modes"]["CREATE"]["terminal_states"].append("ARCHIVED")
+
+    with pytest.raises(ValueError, match="unreachable successful terminal.*ARCHIVED"):
+        policy_module.validate_state_machine_policy(
+            malformed,
+            factory_job_schema=schema,
+        )
+
+
 def test_state_machine_policy_rejects_unreachable_transition_source() -> None:
     malformed = copy.deepcopy(_state_machine_policy())
     malformed["modes"]["CREATE"]["transitions"]["REVIEWING"] = ["DELIVERED"]
