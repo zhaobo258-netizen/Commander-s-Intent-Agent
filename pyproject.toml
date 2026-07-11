@@ -22,6 +22,12 @@ include = ["factory*"]
 "factory.contracts" = ["*.schema.json"]
 "factory.governance" = ["*.yaml"]
 
+[tool.setuptools.data-files]
+"share/commander-intent-agent-factory/templates/job" = [
+  "templates/job/JOB.md.tmpl",
+  "templates/job/COMMANDER_INTENT.md.tmpl",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"

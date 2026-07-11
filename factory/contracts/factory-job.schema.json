@@ -48,6 +48,10 @@
     "transitions": {
       "type": "array",
       "items": {"$ref": "#/$defs/transition"}
+    },
+    "external_state": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/json_value"}
     }
   },
   "$defs": {
@@ -169,6 +173,22 @@
         },
         "at": {"$ref": "#/$defs/date_time"}
       }
+    },
+    "json_value": {
+      "anyOf": [
+        {"type": "null"},
+        {"type": "boolean"},
+        {"type": "string"},
+        {"type": "number"},
+        {
+          "type": "array",
+          "items": {"$ref": "#/$defs/json_value"}
+        },
+        {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/json_value"}
+        }
+      ]
     }
   }
 }

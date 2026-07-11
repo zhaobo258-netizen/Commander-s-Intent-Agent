@@ -101,6 +101,32 @@ def test_factory_job_rejects_unknown_approval_status(valid_job: dict) -> None:
     assert issues[0].code == "enum"
 
 
+def test_factory_job_accepts_optional_mapping_external_state(valid_job: dict) -> None:
+    valid_job["external_state"] = {"checked": True, "details": {"count": 2}}
+
+    assert validate_document("factory-job", valid_job) == ()
+
+
+def test_factory_job_rejects_non_mapping_external_state(valid_job: dict) -> None:
+    valid_job["external_state"] = ["stale"]
+
+    issues = validate_document("factory-job", valid_job)
+
+    assert len(issues) == 1
+    assert issues[0].path == "/external_state"
+    assert issues[0].code == "type"
+
+
+def test_factory_job_rejects_non_json_nested_external_state(valid_job: dict) -> None:
+    valid_job["external_state"] = {"opaque_python_value": {"not-json"}}
+
+    issues = validate_document("factory-job", valid_job)
+
+    assert len(issues) == 1
+    assert issues[0].path == "/external_state/opaque_python_value"
+    assert issues[0].code == "anyOf"
+
+
 def test_all_contract_schemas_use_draft_2020_12() -> None:
     for kind in (
         "commander-intent",
