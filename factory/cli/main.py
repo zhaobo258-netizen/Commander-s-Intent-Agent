@@ -17,6 +17,7 @@ from factory.cli.create import (
 )
 from factory.cli.verify import verify_repository
 from factory.cli.review import review_payload
+from factory.cli.optimize import optimize_diff_payload, optimize_finalize_payload, optimize_prepare_payload
 from factory.errors import GateBlockedError
 from factory.production.jobs import create_job, load_job
 
@@ -87,6 +88,16 @@ def build_parser() -> argparse.ArgumentParser:
     review_parser.add_argument("--workshop", required=True, type=Path)
     review_parser.add_argument("--job-id", required=True)
     review_parser.add_argument("--name", required=True)
+    optimize_prepare = subparsers.add_parser("optimize-prepare")
+    optimize_prepare.add_argument("job_dir", type=Path)
+    optimize_prepare.add_argument("plan", type=Path)
+    optimize_prepare.add_argument("output", type=Path)
+    optimize_prepare.add_argument("--approve", action="store_true")
+    optimize_diff = subparsers.add_parser("optimize-diff")
+    optimize_diff.add_argument("baseline", type=Path)
+    optimize_diff.add_argument("candidate", type=Path)
+    optimize_finalize = subparsers.add_parser("optimize-finalize")
+    optimize_finalize.add_argument("job_dir", type=Path)
     return parser
 
 
@@ -158,6 +169,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "review":
             _emit(json_text(review_payload(args.target, args.workshop, args.job_id, args.name)), sys.stdout)
             return 0
+        if args.command == "optimize-prepare":
+            _emit(json_text(optimize_prepare_payload(args.job_dir, args.plan, args.output, args.approve)), sys.stdout)
+            return 0
+        if args.command == "optimize-diff":
+            _emit(json_text(optimize_diff_payload(args.baseline, args.candidate)), sys.stdout)
+            return 0
+        if args.command == "optimize-finalize":
+            payload = optimize_finalize_payload(args.job_dir)
+            _emit(json_text(payload), sys.stdout)
+            return 0 if payload["ready"] else 2
     except GateBlockedError as exc:
         _emit_error(exc)
         return 2

@@ -89,3 +89,8 @@ def valid_job() -> dict:
 @pytest.fixture
 def valid_review() -> dict:
     return copy.deepcopy(_load_fixture("valid-review.json"))
+
+
+@pytest.fixture
+def valid_optimization_plan() -> dict:
+    return copy.deepcopy(_load_fixture("valid-optimization-plan.yaml"))

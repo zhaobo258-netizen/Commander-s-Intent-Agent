@@ -17,6 +17,7 @@ SCHEMA_FILES = {
     "agent-blueprint": "agent-blueprint.schema.json",
     "factory-job": "factory-job.schema.json",
     "factory-manifest": "factory-manifest.schema.json",
+    "optimization-plan": "optimization-plan.schema.json",
     "review-report": "review-report.schema.json",
 }
 

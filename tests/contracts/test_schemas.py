@@ -21,6 +21,7 @@ from factory.contracts.validation import (
         ("agent-blueprint", "valid_blueprint"),
         ("factory-job", "valid_job"),
         ("review-report", "valid_review"),
+        ("optimization-plan", "valid_optimization_plan"),
     ],
 )
 def test_valid_contract_fixtures_have_no_issues(
@@ -140,6 +141,7 @@ def test_all_contract_schemas_use_draft_2020_12() -> None:
         "agent-blueprint",
         "factory-job",
         "factory-manifest",
+        "optimization-plan",
         "review-report",
     ):
         assert load_schema(kind)["$schema"] == "https://json-schema.org/draft/2020-12/schema"
