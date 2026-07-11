@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib.resources import files
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 
 
 SCHEMA_FILES = {
@@ -43,7 +43,7 @@ def _pointer(path: object) -> str:
 
 def validate_document(kind: str, data: Mapping) -> tuple[ValidationIssue, ...]:
     """Return normalized, deterministically ordered validation issues."""
-    validator = Draft202012Validator(load_schema(kind))
+    validator = Draft202012Validator(load_schema(kind), format_checker=FormatChecker())
     issues = (
         ValidationIssue(
             path=_pointer(error.absolute_path),

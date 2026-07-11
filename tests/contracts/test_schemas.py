@@ -71,6 +71,36 @@ def test_validation_rejects_nested_unknown_governed_key(valid_intent: dict) -> N
     assert issues[0].code == "additionalProperties"
 
 
+def test_factory_job_rejects_invalid_date_time(valid_job: dict) -> None:
+    valid_job["created_at"] = "not-a-date-time"
+
+    issues = validate_document("factory-job", valid_job)
+
+    assert len(issues) == 1
+    assert issues[0].path == "/created_at"
+    assert issues[0].code == "format"
+
+
+def test_review_report_rejects_invalid_date_time(valid_review: dict) -> None:
+    valid_review["evidence"][0]["at"] = "not-a-date-time"
+
+    issues = validate_document("review-report", valid_review)
+
+    assert len(issues) == 1
+    assert issues[0].path == "/evidence/0/at"
+    assert issues[0].code == "format"
+
+
+def test_factory_job_rejects_unknown_approval_status(valid_job: dict) -> None:
+    valid_job["approvals"][0]["status"] = "banana"
+
+    issues = validate_document("factory-job", valid_job)
+
+    assert len(issues) == 1
+    assert issues[0].path == "/approvals/0/status"
+    assert issues[0].code == "enum"
+
+
 def test_all_contract_schemas_use_draft_2020_12() -> None:
     for kind in (
         "commander-intent",

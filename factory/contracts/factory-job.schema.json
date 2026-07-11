@@ -116,7 +116,9 @@
       "required": ["id", "status", "requested_at", "ref"],
       "properties": {
         "id": {"$ref": "#/$defs/non_empty_string"},
-        "status": {"$ref": "#/$defs/non_empty_string"},
+        "status": {
+          "enum": ["pending", "approved", "rejected", "cancelled"]
+        },
         "requested_at": {"$ref": "#/$defs/date_time"},
         "resolved_at": {"$ref": "#/$defs/date_time"},
         "ref": {"$ref": "#/$defs/non_empty_string"}
