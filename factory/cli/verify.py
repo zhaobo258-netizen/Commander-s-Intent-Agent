@@ -25,6 +25,7 @@ from factory.contracts.validation import (
     validate_schema_references,
 )
 from factory.governance.policy import (
+    validate_evaluation_policy,
     validate_production_gate_policy,
     validate_state_machine_policy,
 )
@@ -37,11 +38,13 @@ _SCHEMA_PATHS = (
     "factory/contracts/agent-blueprint.schema.json",
     "factory/contracts/factory-job.schema.json",
     "factory/contracts/factory-manifest.schema.json",
+    "factory/contracts/optimization-plan.schema.json",
     "factory/contracts/review-report.schema.json",
 )
 _POLICY_PATHS = (
     "factory/governance/production-gates.yaml",
     "factory/governance/state-machine.yaml",
+    "factory/governance/evaluation-policy.yaml",
 )
 _TEMPLATE_PATHS = (
     "templates/job/JOB.md.tmpl",
@@ -72,6 +75,8 @@ _REQUIRED_PACKAGES = (
     "factory.contracts",
     "factory.governance",
     "factory.interview",
+    "factory.review",
+    "factory.optimization",
     "factory.production",
 )
 _REQUIRED_PACKAGE_FILES = (
@@ -89,10 +94,28 @@ _REQUIRED_PACKAGE_FILES = (
     "factory/governance/state_machine.py",
     "factory/interview/__init__.py",
     "factory/interview/protocol.py",
+    "factory/review/__init__.py",
+    "factory/review/models.py",
+    "factory/review/snapshot.py",
+    "factory/review/evaluator.py",
+    "factory/review/report.py",
+    "factory/review/pipeline.py",
+    "factory/optimization/__init__.py",
+    "factory/optimization/workspace.py",
+    "factory/optimization/diff.py",
+    "factory/optimization/pipeline.py",
     "factory/production/__init__.py",
     "factory/production/blueprint.py",
     "factory/production/generator.py",
     "factory/production/jobs.py",
+)
+_M3_REQUIRED_FILES = (
+    "tests/fixtures/review/standard-agent/COMMANDER_INTENT.md",
+    "tests/fixtures/review/standard-agent/AGENT_SPEC.yaml",
+    "tests/fixtures/review/standard-agent/evaluation/cases.yaml",
+    "tests/review/test_review_pipeline.py",
+    "tests/optimization/test_pipeline.py",
+    "tests/e2e/test_review_optimize.py",
 )
 
 
@@ -212,7 +235,7 @@ def _verify_policies(
                     document,
                     commander_intent_schema=commander_intent_schema,
                 )
-            else:
+            elif relative.endswith("state-machine.yaml"):
                 factory_job_schema = schemas.get(
                     "factory/contracts/factory-job.schema.json"
                 )
@@ -225,6 +248,8 @@ def _verify_policies(
                     document,
                     factory_job_schema=factory_job_schema,
                 )
+            else:
+                validate_evaluation_policy(document)
         except Exception as exc:
             failures.append(
                 f"malformed:{relative}:invalid-policy:{_compact_detail(exc)}"
@@ -637,6 +662,9 @@ def verify_repository(root: Path) -> VerificationReport:
     _verify_policies(injected_root, schemas, checks, failures)
     _verify_metadata(injected_root, checks, failures)
     _verify_workshop(injected_root, checks, failures)
+    for relative in _M3_REQUIRED_FILES:
+        if _read_text(injected_root, relative, failures) is not None:
+            checks.append(f"verified:{relative}")
     return VerificationReport(
         ok=not failures,
         checks=tuple(checks),
