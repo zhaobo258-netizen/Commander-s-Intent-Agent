@@ -9,7 +9,7 @@ from typing import Any
 import yaml
 
 
-POLICY_FILES = {"commander-intent": "production-gates.yaml"}
+POLICY_FILES = {"production-gates": "production-gates.yaml"}
 _POLICY_KEYS = {
     "schema_version",
     "threshold",
@@ -125,7 +125,7 @@ def load_policy(name: str) -> dict:
     try:
         filename = POLICY_FILES[name]
     except KeyError as exc:
-        raise ValueError(f"unknown production policy: {name}") from exc
+        raise ValueError(f"unknown governance policy: {name}") from exc
 
     resource = files("factory.governance").joinpath(filename)
     try:

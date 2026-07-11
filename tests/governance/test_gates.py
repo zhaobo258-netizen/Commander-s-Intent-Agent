@@ -22,7 +22,7 @@ CRITICAL_PATHS = (
 
 @pytest.fixture
 def production_policy() -> dict:
-    return load_policy("commander-intent")
+    return load_policy("production-gates")
 
 
 @pytest.fixture
@@ -41,7 +41,7 @@ def production_ready_intent(valid_intent: dict) -> dict:
 
 
 def test_loads_exact_commander_intent_production_policy() -> None:
-    policy = load_policy("commander-intent")
+    policy = load_policy("production-gates")
 
     assert policy["schema_version"] == "1.0"
     assert policy["threshold"] == 80
@@ -304,15 +304,18 @@ def test_contract_invalid_provenance_fails_closed_without_crashing(
     assert decision.ready is False
 
 
-def test_load_policy_rejects_unknown_name() -> None:
-    with pytest.raises(ValueError, match="unknown production policy"):
-        load_policy("unknown")
+def test_load_policy_rejects_consumer_identifier() -> None:
+    with pytest.raises(
+        ValueError,
+        match="unknown governance policy: commander-intent",
+    ):
+        load_policy("commander-intent")
 
 
 def test_load_policy_rejects_malformed_policy_with_useful_message(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    malformed = load_policy("commander-intent")
+    malformed = load_policy("production-gates")
     malformed["threshold"] = "eighty"
 
     class FakeResource:
@@ -326,13 +329,13 @@ def test_load_policy_rejects_malformed_policy_with_useful_message(
     monkeypatch.setattr(policy_module, "files", lambda _package: FakeResource())
 
     with pytest.raises(ValueError, match="threshold.*integer"):
-        load_policy("commander-intent")
+        load_policy("production-gates")
 
 
 def test_load_policy_normalizes_non_string_unknown_key_to_value_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    malformed = load_policy("commander-intent")
+    malformed = load_policy("production-gates")
     malformed[7] = "unexpected"
 
     class FakeResource:
@@ -346,4 +349,4 @@ def test_load_policy_normalizes_non_string_unknown_key_to_value_error(
     monkeypatch.setattr(policy_module, "files", lambda _package: FakeResource())
 
     with pytest.raises(ValueError, match="unknown keys.*7"):
-        load_policy("commander-intent")
+        load_policy("production-gates")
