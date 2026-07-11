@@ -79,9 +79,14 @@ def _validate_transition_history(
 ) -> None:
     history = job["transitions"]
     if current == "NEW":
-        if history:
-            raise TransitionError("NEW job must have empty transition history")
-        return
+        if not history:
+            return
+        latest = history[-1]
+        if latest["from"] == "BLOCKED" and latest["to"] == "NEW":
+            return
+        raise TransitionError(
+            "NEW job transition history must be empty or end BLOCKED -> NEW"
+        )
 
     if not history:
         raise TransitionError(

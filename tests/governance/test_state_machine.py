@@ -571,6 +571,46 @@ def test_valid_blocked_history_resumes_and_appends_resume_transition(
     }
 
 
+def test_resumed_new_job_can_continue_to_discovery(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+    now = datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc)
+
+    blocked = state_machine.transition(
+        new_job,
+        "BLOCKED",
+        "needs_scope",
+        ["evidence/blocker.md"],
+        now,
+    )
+    resumed = state_machine.transition(
+        blocked,
+        "NEW",
+        "scope_available",
+        ["evidence/scope.md"],
+        now,
+    )
+    discovery = state_machine.transition(
+        resumed,
+        "DISCOVERY",
+        "start_discovery",
+        ["evidence/discovery.md"],
+        now,
+    )
+
+    assert discovery["status"] == "DISCOVERY"
+    assert discovery["checkpoint"]["state"] == "DISCOVERY"
+    assert discovery["checkpoint"]["sequence"] == 3
+    assert [
+        (record["from"], record["to"])
+        for record in discovery["transitions"]
+    ] == [
+        ("NEW", "BLOCKED"),
+        ("BLOCKED", "NEW"),
+        ("NEW", "DISCOVERY"),
+    ]
+    assert validate_document("factory-job", discovery) == ()
+
+
 def test_transition_rejects_invalid_factory_job_contract(new_job: dict) -> None:
     state_machine = _state_machine_module()
     del new_job["job_id"]
