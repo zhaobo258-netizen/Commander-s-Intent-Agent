@@ -21,6 +21,7 @@ include = ["factory*"]
 [tool.setuptools.package-data]
 "factory.contracts" = ["*.schema.json"]
 "factory.governance" = ["*.yaml"]
+"factory.interview" = ["questions.yaml"]
 
 [tool.setuptools.data-files]
 "share/commander-intent-agent-factory/templates/job" = [

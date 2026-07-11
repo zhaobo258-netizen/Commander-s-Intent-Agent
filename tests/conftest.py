@@ -26,6 +26,20 @@ def valid_intent() -> dict:
 
 
 @pytest.fixture
+def incomplete_intent(valid_intent: dict) -> dict:
+    intent = copy.deepcopy(valid_intent)
+    intent["user"] = {}
+    intent["authority"] = {}
+    intent["provenance"] = [
+        record
+        for record in intent["provenance"]
+        if record["path"] not in {"/user", "/authority"}
+    ]
+    intent["confirmed"] = False
+    return intent
+
+
+@pytest.fixture
 def valid_blueprint() -> dict:
     return copy.deepcopy(_load_fixture("valid-blueprint.yaml"))
 
