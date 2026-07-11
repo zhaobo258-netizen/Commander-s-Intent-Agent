@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fictional Regional Manager Opportunity Agent"
+  short_description: "Run this generated Agent with evidence-backed boundaries"
+  default_prompt: "Use $fictional-regional-manager-opportunity-a-00128226 to carry out the confirmed mission within its declared authority."

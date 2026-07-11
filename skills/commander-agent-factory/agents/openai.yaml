@@ -1,0 +1,4 @@
+interface:
+  display_name: "Commander Agent Factory"
+  short_description: "Create, review, and optimize evidence-backed Agents"
+  default_prompt: "Use $commander-agent-factory to create, review, or optimize an Agent through evidence-backed gates."

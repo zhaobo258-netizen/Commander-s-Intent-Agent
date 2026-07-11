@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://commander-agent-factory.local/contracts/factory-manifest.schema.json",
+  "title": "Factory Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generator_version",
+    "source_hashes",
+    "template_set_hash",
+    "created_paths",
+    "file_hashes",
+    "omitted_components",
+    "status_layers"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "generator_version": {"type": "string", "minLength": 1},
+    "source_hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commander_intent", "agent_blueprint"],
+      "properties": {
+        "commander_intent": {"$ref": "#/$defs/sha256"},
+        "agent_blueprint": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "template_set_hash": {"$ref": "#/$defs/sha256"},
+    "created_paths": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/relative_path"}
+    },
+    "file_hashes": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/relative_path"},
+      "additionalProperties": {"$ref": "#/$defs/sha256"}
+    },
+    "omitted_components": {
+      "type": "object",
+      "propertyNames": {"type": "string", "minLength": 1},
+      "additionalProperties": {"enum": ["not_declared", "not_modeled"]}
+    },
+    "status_layers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "local_generated",
+        "local_validated",
+        "installed",
+        "published",
+        "real_usage_verified"
+      ],
+      "properties": {
+        "local_generated": {"const": true},
+        "local_validated": {"const": false},
+        "installed": {"const": false},
+        "published": {"const": false},
+        "real_usage_verified": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+    }
+  }
+}

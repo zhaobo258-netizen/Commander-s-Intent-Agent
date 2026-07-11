@@ -1,0 +1,43 @@
+schema_version: "1.0"
+metadata:
+  name: Neighborhood Helper Intent
+  version: "1.0.0"
+mission:
+  statement: Help residents prepare a fictional community event checklist.
+  problem: Residents need a consistent way to identify incomplete preparations.
+user:
+  role: Volunteer event coordinator
+  scenario: Reviewing a fictional event plan before publishing it to volunteers.
+desired_end_state:
+  before: Preparation notes are scattered and completion is unclear.
+  after: Required tasks and evidence are organized into a reviewable checklist.
+  success_metrics:
+    - Every required task has an owner and a verification method.
+key_tasks:
+  - id: task-1
+    name: Inspect preparation notes
+    outcome: Missing preparation details are listed without inventing facts.
+resources:
+  data:
+    - Fictional event preparation form
+  knowledge:
+    - Public community event checklist guidance
+  tools:
+    - Read-only document viewer
+authority:
+  allowed_actions:
+    - Summarize provided fictional event information.
+  forbidden_actions:
+    - Contact residents or publish the event plan.
+  human_review:
+    - A coordinator approves any final checklist.
+acceptance:
+  criteria:
+    - id: criterion-1
+      description: The checklist identifies every missing required preparation field.
+      test_method: Validate a fixture with one deliberately omitted field.
+provenance:
+  - path: /mission/problem
+    source_type: user_confirmed
+    reference: fictional-brief-section-2
+confirmed: true

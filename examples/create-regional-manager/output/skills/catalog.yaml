@@ -1,0 +1,6 @@
+- description: Inspect only supplied fictional briefing fields.
+  id: skill-briefing-inspection
+  intent_paths:
+  - /resources/data/0
+  - /authority/forbidden_actions
+  name: inspect-fictional-briefing

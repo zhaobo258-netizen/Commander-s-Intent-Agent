@@ -1,0 +1,72 @@
+schema_version: "1.0"
+questions:
+  - id: user
+    priority: 1
+    path: /user
+    prompt: 这个 Agent 主要帮助哪一类人，他们会在什么具体场景下使用它？
+    reason: 明确具体使用者和场景，才能判断 Agent 应该帮谁完成什么。
+    recommended_answer: 说明一个具体角色和一个高频使用场景
+    options:
+      - 说明一个具体角色和一个高频使用场景
+      - 先选择最常见的一类使用者
+      - 暂时不知道
+  - id: mission
+    priority: 2
+    path: /mission
+    prompt: 你希望这个 Agent 最终解决的核心问题是什么？
+    reason: 核心问题决定 Agent 的存在价值，也能防止它变成功能堆积。
+    recommended_answer: 用一句话说明服务对象正在遇到的具体问题
+    options:
+      - 用一句话说明服务对象正在遇到的具体问题
+      - 先说明现在最浪费时间或最容易出错的环节
+      - 暂时不知道
+  - id: desired-end-state
+    priority: 3
+    path: /desired_end_state
+    prompt: 使用这个 Agent 后，现实中的结果应该发生什么变化？
+    reason: 只有说清当前状态、目标状态和成功证据，才能判断 Agent 是否真正有效。
+    recommended_answer: 对比使用前后的变化，并给出至少一个可观察指标
+    options:
+      - 对比使用前后的变化，并给出至少一个可观察指标
+      - 先说明你最希望看到的一个业务结果
+      - 暂时不知道
+  - id: key-tasks
+    priority: 4
+    path: /key_tasks
+    prompt: 为了实现这个结果，Agent 必须完成哪些关键任务？
+    reason: 关键任务要围绕结果拆解，后续才能设计可测试的能力和工作流程。
+    recommended_answer: 列出三到五个有明确产出的必做任务
+    options:
+      - 列出三到五个有明确产出的必做任务
+      - 先列出最重要的一个任务
+      - 暂时不知道
+  - id: resources
+    priority: 5
+    path: /resources
+    prompt: 这个 Agent 可以使用哪些真实数据、资料和工具？
+    reason: 可用资源决定 Agent 能基于什么事实工作，也能避免它凭空猜测。
+    recommended_answer: 分别列出已有数据、可信资料和允许使用的工具
+    options:
+      - 分别列出已有数据、可信资料和允许使用的工具
+      - 先列出已经能够拿到的资料
+      - 暂时不知道
+  - id: authority
+    priority: 6
+    path: /authority
+    prompt: 哪些动作可以由 Agent 直接完成，哪些必须由人确认？
+    reason: 先说清允许、禁止和人工审核边界，可以防止 Agent 越权或作出高风险承诺。
+    recommended_answer: 分别列出允许动作、禁止动作和必须人工确认的事项
+    options:
+      - 分别列出允许动作、禁止动作和必须人工确认的事项
+      - 默认采用 Agent 提建议、人做最终决定
+      - 暂时不知道
+  - id: acceptance
+    priority: 7
+    path: /acceptance
+    prompt: 你准备怎样测试并判断这个 Agent 已经合格？
+    reason: 可执行的验收方法能把“感觉有用”变成可重复检查的交付标准。
+    recommended_answer: 给出至少一个测试场景、期望结果和通过条件
+    options:
+      - 给出至少一个测试场景、期望结果和通过条件
+      - 先写一个最典型的合格案例
+      - 暂时不知道

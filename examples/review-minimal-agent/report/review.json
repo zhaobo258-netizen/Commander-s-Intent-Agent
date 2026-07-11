@@ -1,0 +1,155 @@
+{
+  "evidence": [
+    {
+      "at": "2026-07-11T00:00:00+00:00",
+      "kind": "review_file",
+      "line_end": null,
+      "line_start": null,
+      "path": ".",
+      "ref": ".:e1ad93a55d48626d9690ecb1ad1bb840f756323b1b0d7879ff2c84d2b4ce92f4",
+      "sha256": "e1ad93a55d48626d9690ecb1ad1bb840f756323b1b0d7879ff2c84d2b4ce92f4",
+      "status": "verified"
+    },
+    {
+      "at": "2026-07-11T00:00:00+00:00",
+      "kind": "review_file",
+      "line_end": null,
+      "line_start": null,
+      "path": ".",
+      "ref": ".:e1ad93a55d48626d9690ecb1ad1bb840f756323b1b0d7879ff2c84d2b4ce92f4",
+      "sha256": "e1ad93a55d48626d9690ecb1ad1bb840f756323b1b0d7879ff2c84d2b4ce92f4",
+      "status": "verified"
+    },
+    {
+      "at": "2026-07-11T00:00:00+00:00",
+      "kind": "review_file",
+      "line_end": null,
+      "line_start": null,
+      "path": ".",
+      "ref": ".:e1ad93a55d48626d9690ecb1ad1bb840f756323b1b0d7879ff2c84d2b4ce92f4",
+      "sha256": "e1ad93a55d48626d9690ecb1ad1bb840f756323b1b0d7879ff2c84d2b4ce92f4",
+      "status": "verified"
+    }
+  ],
+  "findings": [
+    {
+      "evidence": [
+        {
+          "at": "2026-07-11T00:00:00+00:00",
+          "kind": "review_file",
+          "line_end": null,
+          "line_start": null,
+          "path": ".",
+          "ref": ".:e1ad93a55d48626d9690ecb1ad1bb840f756323b1b0d7879ff2c84d2b4ce92f4",
+          "sha256": "e1ad93a55d48626d9690ecb1ad1bb840f756323b1b0d7879ff2c84d2b4ce92f4",
+          "status": "verified"
+        }
+      ],
+      "evidence_status": "verified",
+      "id": "REV-INTENT-001",
+      "impact": "The Agent cannot reliably demonstrate commander intent.",
+      "recommendation": "Add and validate COMMANDER_INTENT.md with evidence tied to the Agent mission.",
+      "severity": "P1",
+      "title": "Commander Intent"
+    },
+    {
+      "evidence": [
+        {
+          "at": "2026-07-11T00:00:00+00:00",
+          "kind": "review_file",
+          "line_end": null,
+          "line_start": null,
+          "path": ".",
+          "ref": ".:e1ad93a55d48626d9690ecb1ad1bb840f756323b1b0d7879ff2c84d2b4ce92f4",
+          "sha256": "e1ad93a55d48626d9690ecb1ad1bb840f756323b1b0d7879ff2c84d2b4ce92f4",
+          "status": "verified"
+        }
+      ],
+      "evidence_status": "verified",
+      "id": "REV-BLUEPRINT-001",
+      "impact": "The Agent cannot reliably demonstrate agent specification and traceability.",
+      "recommendation": "Add and validate AGENT_SPEC.yaml with evidence tied to the Agent mission.",
+      "severity": "P1",
+      "title": "Agent specification and traceability"
+    },
+    {
+      "evidence": [
+        {
+          "at": "2026-07-11T00:00:00+00:00",
+          "kind": "review_file",
+          "line_end": null,
+          "line_start": null,
+          "path": ".",
+          "ref": ".:e1ad93a55d48626d9690ecb1ad1bb840f756323b1b0d7879ff2c84d2b4ce92f4",
+          "sha256": "e1ad93a55d48626d9690ecb1ad1bb840f756323b1b0d7879ff2c84d2b4ce92f4",
+          "status": "verified"
+        }
+      ],
+      "evidence_status": "verified",
+      "id": "REV-EVAL-001",
+      "impact": "The Agent cannot reliably demonstrate evaluation cases.",
+      "recommendation": "Add and validate evaluation/cases.yaml with evidence tied to the Agent mission.",
+      "severity": "P2",
+      "title": "evaluation cases"
+    }
+  ],
+  "quality": {
+    "layers": [
+      {
+        "name": "intent",
+        "notes": "score=0",
+        "status": "missing"
+      },
+      {
+        "name": "capability",
+        "notes": "score=0",
+        "status": "missing"
+      },
+      {
+        "name": "execution",
+        "notes": "score=0",
+        "status": "structural_only"
+      },
+      {
+        "name": "outcome",
+        "notes": "score=None",
+        "status": "not_evidenced"
+      },
+      {
+        "name": "evolution",
+        "notes": "score=None",
+        "status": "not_evidenced"
+      }
+    ]
+  },
+  "schema_version": "1.0",
+  "scope": [
+    "intent",
+    "traceability",
+    "skills",
+    "resources",
+    "permissions",
+    "state_and_recovery",
+    "human_review",
+    "evaluation_cases",
+    "novice_usability",
+    "privacy_license_platform"
+  ],
+  "status_layers": {
+    "installed": false,
+    "local_generated": false,
+    "local_validated": false,
+    "published": false,
+    "real_usage_verified": false
+  },
+  "target": {
+    "kind": "directory",
+    "ref": "examples/review-minimal-agent/target"
+  },
+  "unverified": [
+    "business outcome",
+    "continuous evolution",
+    "real downstream usage"
+  ],
+  "verdict": "blocked"
+}

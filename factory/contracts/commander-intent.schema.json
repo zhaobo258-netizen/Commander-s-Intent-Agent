@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://commander-agent-factory.local/contracts/commander-intent.schema.json",
+  "title": "Commander Intent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "metadata",
+    "mission",
+    "user",
+    "desired_end_state",
+    "key_tasks",
+    "resources",
+    "authority",
+    "acceptance",
+    "provenance",
+    "confirmed"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "metadata": {"$ref": "#/$defs/metadata"},
+    "mission": {"$ref": "#/$defs/mission"},
+    "user": {"$ref": "#/$defs/user"},
+    "desired_end_state": {"$ref": "#/$defs/desired_end_state"},
+    "key_tasks": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/key_task"}
+    },
+    "resources": {"$ref": "#/$defs/resources"},
+    "authority": {"$ref": "#/$defs/authority"},
+    "acceptance": {"$ref": "#/$defs/acceptance"},
+    "provenance": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/provenance_record"}
+    },
+    "confirmed": {"type": "boolean"}
+  },
+  "$defs": {
+    "non_empty_string": {
+      "type": "string",
+      "minLength": 1
+    },
+    "string_list": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/non_empty_string"}
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"$ref": "#/$defs/non_empty_string"},
+        "version": {"$ref": "#/$defs/non_empty_string"}
+      }
+    },
+    "mission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statement", "problem"],
+      "properties": {
+        "statement": {"$ref": "#/$defs/non_empty_string"},
+        "problem": {"$ref": "#/$defs/non_empty_string"}
+      }
+    },
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "scenario"],
+      "properties": {
+        "role": {"$ref": "#/$defs/non_empty_string"},
+        "scenario": {"$ref": "#/$defs/non_empty_string"}
+      }
+    },
+    "desired_end_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["before", "after", "success_metrics"],
+      "properties": {
+        "before": {"$ref": "#/$defs/non_empty_string"},
+        "after": {"$ref": "#/$defs/non_empty_string"},
+        "success_metrics": {"$ref": "#/$defs/string_list"}
+      }
+    },
+    "key_task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "outcome"],
+      "properties": {
+        "id": {"$ref": "#/$defs/non_empty_string"},
+        "name": {"$ref": "#/$defs/non_empty_string"},
+        "outcome": {"$ref": "#/$defs/non_empty_string"}
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["data", "knowledge", "tools"],
+      "properties": {
+        "data": {"$ref": "#/$defs/string_list"},
+        "knowledge": {"$ref": "#/$defs/string_list"},
+        "tools": {"$ref": "#/$defs/string_list"}
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed_actions", "forbidden_actions", "human_review"],
+      "properties": {
+        "allowed_actions": {"$ref": "#/$defs/string_list"},
+        "forbidden_actions": {"$ref": "#/$defs/string_list"},
+        "human_review": {"$ref": "#/$defs/string_list"}
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["criteria"],
+      "properties": {
+        "criteria": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/acceptance_criterion"}
+        }
+      }
+    },
+    "acceptance_criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "test_method"],
+      "properties": {
+        "id": {"$ref": "#/$defs/non_empty_string"},
+        "description": {"$ref": "#/$defs/non_empty_string"},
+        "test_method": {"$ref": "#/$defs/non_empty_string"}
+      }
+    },
+    "provenance_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "source_type", "reference"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "source_type": {
+          "enum": [
+            "user_confirmed",
+            "observed_file",
+            "tool_result",
+            "inference",
+            "assumption"
+          ]
+        },
+        "reference": {"$ref": "#/$defs/non_empty_string"}
+      }
+    }
+  }
+}
