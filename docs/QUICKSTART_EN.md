@@ -53,7 +53,7 @@ The wheel does not embed the repository-level Skill. Always provide a trusted ex
 
 ```bash
 python -m pytest -q
-python -m factory.cli verify-repo .
+python -m factory.cli verify-repo . --public
 python scripts/verify_public.py
 ```
 
