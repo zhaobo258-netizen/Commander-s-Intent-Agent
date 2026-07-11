@@ -6,7 +6,7 @@ from factory.governance.privacy import scan_public_tree
 def test_private_path_and_fake_secret_are_redacted(tmp_path: Path) -> None:
     private = tmp_path / "workshop/jobs/client/intake.txt"
     private.parent.mkdir(parents=True)
-    fake = "ghp_abcdefghijklmnopqrstuvwxyz1234567890"
+    fake = "ghp_" + "abcdefghijklmnopqrstuvwxyz1234567890"
     private.write_text(fake, encoding="utf-8")
     report = scan_public_tree(tmp_path, ["workshop/jobs/client/intake.txt"])
     assert {finding.code for finding in report.findings} == {"private_path", "secret_pattern"}

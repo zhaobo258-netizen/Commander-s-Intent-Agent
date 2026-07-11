@@ -12,6 +12,10 @@ from typing import Iterable
 
 _MAX_PUBLIC_BYTES = 2_000_000
 _PRIVATE_PREFIXES = ("workshop/jobs/", "workshop/reviews/")
+_PUBLIC_WORKSHOP_SENTINELS = {
+    "workshop/jobs/.gitkeep",
+    "workshop/reviews/.gitkeep",
+}
 _SECRET_PATTERNS = (
     re.compile(rb"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----"),
     re.compile(rb"gh[pousr]_[A-Za-z0-9]{20,}"),
@@ -59,7 +63,10 @@ def scan_public_tree(
             findings.append(PrivacyFinding(normalized, "unsafe_path", None, _fingerprint(normalized.encode("utf-8"))))
             continue
         lower = normalized.lower()
-        private = lower.startswith(_PRIVATE_PREFIXES) or PurePosixPath(lower).name == ".env" or PurePosixPath(lower).name.startswith(".env.")
+        private = (
+            lower.startswith(_PRIVATE_PREFIXES)
+            and lower not in _PUBLIC_WORKSHOP_SENTINELS
+        ) or PurePosixPath(lower).name == ".env" or PurePosixPath(lower).name.startswith(".env.")
         if private:
             findings.append(PrivacyFinding(normalized, "private_path", None, _fingerprint(normalized.encode("utf-8"))))
         path = base.joinpath(*PurePosixPath(normalized).parts)
