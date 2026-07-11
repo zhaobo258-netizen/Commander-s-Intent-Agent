@@ -40,6 +40,13 @@ _MODE_CONTAINERS = {
     "REVIEW": "reviews",
     "OPTIMIZE": "reviews",
 }
+_STATUS_LAYERS = (
+    "local_generated",
+    "local_validated",
+    "installed",
+    "published",
+    "real_usage_verified",
+)
 _TEMPLATE_ROOT = Path(__file__).resolve().parents[2] / "templates" / "job"
 _INSTALLED_TEMPLATE_ROOT = (
     Path(get_path("data"))
@@ -575,3 +582,35 @@ def resume_job(
     _validate_job_snapshot(resumed, "resumed job")
     _atomic_write_json(Path(job_dir) / "status.json", resumed)
     return deepcopy(resumed)
+
+
+def mark_status_layer(job: Mapping, layer: str, evidence_ref: str) -> dict:
+    """Return a copied job with exactly one evidence-backed truth layer set."""
+    _validate_job_snapshot(job, "status-layer input")
+    if not isinstance(layer, str) or layer not in _STATUS_LAYERS:
+        raise ContractValidationError(f"unknown factory status layer: {layer!r}")
+    if not isinstance(evidence_ref, str) or not evidence_ref.strip():
+        raise ContractValidationError(
+            "status layer evidence ref must be a non-empty UTF-8 string"
+        )
+    try:
+        evidence_ref.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ContractValidationError(
+            "status layer evidence ref must be a non-empty UTF-8 string"
+        ) from exc
+    if job["status_layers"][layer] is True:
+        raise ContractValidationError(f"factory status layer is already true: {layer}")
+
+    marked = deepcopy(dict(job))
+    marked["status_layers"][layer] = True
+    marked["evidence"].append(
+        {
+            "kind": f"status_layer:{layer}",
+            "ref": evidence_ref,
+            "status": "verified",
+            "at": marked["updated_at"],
+        }
+    )
+    _validate_job_snapshot(marked, "status-layer output")
+    return marked

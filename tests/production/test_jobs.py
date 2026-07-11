@@ -12,10 +12,20 @@ import pytest
 from factory.contracts import validate_document
 from factory.errors import ContractValidationError, FactoryError, UnsafePathError
 from factory.production import jobs as jobs_module
+from factory import production as production_module
 from factory.production.jobs import create_job, load_job, resume_job, save_checkpoint
 
 
 NOW = datetime(2026, 7, 11, 9, 0, tzinfo=timezone.utc)
+
+
+CANONICAL_STATUS_LAYERS = (
+    "local_generated",
+    "local_validated",
+    "installed",
+    "published",
+    "real_usage_verified",
+)
 
 
 @pytest.mark.parametrize(
@@ -1221,6 +1231,131 @@ def test_resume_preserves_finite_json_external_state(tmp_path: Path) -> None:
 
     assert resumed["external_state"] == expected
     assert load_job(job_dir)["external_state"] == expected
+
+
+def test_mark_status_layer_changes_exactly_one_layer_and_appends_evidence(
+    tmp_path: Path,
+) -> None:
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "status-layer-agent",
+        NOW,
+        job_id="job-status-layer",
+    )
+    resumed = resume_job(
+        job_dir,
+        lambda _job: {"repository_head": "fresh-head"},
+    )
+    before = copy.deepcopy(resumed)
+    persisted_before = (job_dir / "status.json").read_bytes()
+
+    marked = production_module.mark_status_layer(
+        resumed,
+        "local_validated",
+        "evidence/local-validation.txt",
+    )
+
+    expected = copy.deepcopy(before)
+    expected["status_layers"]["local_validated"] = True
+    expected["evidence"].append(
+        {
+            "kind": "status_layer:local_validated",
+            "ref": "evidence/local-validation.txt",
+            "status": "verified",
+            "at": expected["updated_at"],
+        }
+    )
+    assert marked == expected
+    assert resumed == before
+    assert tuple(marked["status_layers"]) == CANONICAL_STATUS_LAYERS
+    assert marked["transitions"] == before["transitions"]
+    assert marked["external_state"] == before["external_state"]
+    assert (job_dir / "status.json").read_bytes() == persisted_before
+    assert validate_document("factory-job", marked) == ()
+
+
+@pytest.mark.parametrize("layer", ["unknown", "", None, 42])
+def test_mark_status_layer_rejects_unknown_or_non_string_layer(
+    tmp_path: Path,
+    layer: object,
+) -> None:
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "bad-layer-agent",
+        NOW,
+        job_id="job-bad-layer",
+    )
+
+    with pytest.raises(ContractValidationError, match="status layer"):
+        production_module.mark_status_layer(
+            load_job(job_dir), layer, "evidence/validation.txt"
+        )
+
+
+@pytest.mark.parametrize("evidence_ref", ["", "   ", None, 42, "\ud800"])
+def test_mark_status_layer_requires_nonempty_utf8_evidence_ref(
+    tmp_path: Path,
+    evidence_ref: object,
+) -> None:
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "bad-evidence-agent",
+        NOW,
+        job_id="job-bad-evidence",
+    )
+
+    with pytest.raises(ContractValidationError, match="evidence ref"):
+        production_module.mark_status_layer(
+            load_job(job_dir), "local_validated", evidence_ref
+        )
+
+
+def test_mark_status_layer_rejects_already_true_layer(tmp_path: Path) -> None:
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "duplicate-layer-agent",
+        NOW,
+        job_id="job-duplicate-layer",
+    )
+    marked = production_module.mark_status_layer(
+        load_job(job_dir),
+        "local_validated",
+        "evidence/first-validation.txt",
+    )
+
+    with pytest.raises(ContractValidationError, match="already true"):
+        production_module.mark_status_layer(
+            marked,
+            "local_validated",
+            "evidence/second-validation.txt",
+        )
+
+
+def test_mark_status_layer_rejects_lifecycle_invalid_input(tmp_path: Path) -> None:
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "invalid-lifecycle-agent",
+        NOW,
+        job_id="job-invalid-lifecycle",
+    )
+    invalid = load_job(job_dir)
+    invalid["status"] = "DELIVERED"
+    invalid["checkpoint"].update(
+        {"state": "DELIVERED", "next_action": "completed:DELIVERED"}
+    )
+    assert validate_document("factory-job", invalid) == ()
+
+    with pytest.raises(ContractValidationError, match="lifecycle"):
+        production_module.mark_status_layer(
+            invalid,
+            "local_validated",
+            "evidence/validation.txt",
+        )
 
 
 @pytest.mark.parametrize(
