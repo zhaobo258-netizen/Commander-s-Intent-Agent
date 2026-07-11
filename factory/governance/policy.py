@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from importlib.resources import files
 from typing import Any
 
 import yaml
 
 
-POLICY_FILES = {"production-gates": "production-gates.yaml"}
 _POLICY_KEYS = {
     "schema_version",
     "threshold",
@@ -18,6 +17,17 @@ _POLICY_KEYS = {
     "sections",
 }
 _SECTION_KEYS = {"id", "points", "required_paths"}
+_APPROVED_CONFIRMED_SOURCE_TYPES = frozenset(
+    {"user_confirmed", "observed_file", "tool_result"}
+)
+_REQUIRED_CRITICAL_PATHS = (
+    "/mission",
+    "/user",
+    "/desired_end_state",
+    "/resources",
+    "/authority",
+    "/acceptance",
+)
 
 
 def _policy_error(message: str) -> ValueError:
@@ -63,7 +73,7 @@ def _require_paths(value: object, location: str, *, allow_empty: bool) -> list[s
     return paths
 
 
-def validate_policy(policy: Mapping[str, Any]) -> None:
+def validate_production_gate_policy(policy: Mapping[str, Any]) -> None:
     """Raise ``ValueError`` when a policy is structurally unsafe to evaluate."""
     if not isinstance(policy, Mapping):
         raise _policy_error("document must be a mapping")
@@ -79,12 +89,27 @@ def validate_policy(policy: Mapping[str, Any]) -> None:
     if not 0 <= threshold <= 100:
         raise _policy_error("threshold must be between 0 and 100")
 
-    _require_string_list(
+    confirmed_source_types = _require_string_list(
         policy["confirmed_source_types"],
         "confirmed_source_types",
         allow_empty=False,
     )
-    _require_paths(policy["critical_paths"], "critical_paths", allow_empty=True)
+    if not set(confirmed_source_types).issubset(
+        _APPROVED_CONFIRMED_SOURCE_TYPES
+    ):
+        raise _policy_error(
+            "confirmed_source_types must contain only approved source types"
+        )
+
+    critical_paths = _require_paths(
+        policy["critical_paths"],
+        "critical_paths",
+        allow_empty=True,
+    )
+    if tuple(critical_paths) != _REQUIRED_CRITICAL_PATHS:
+        raise _policy_error(
+            "critical_paths must contain exactly the approved paths in canonical order"
+        )
 
     sections = policy["sections"]
     if not isinstance(sections, list) or not sections:
@@ -120,10 +145,19 @@ def validate_policy(policy: Mapping[str, Any]) -> None:
         raise _policy_error("threshold exceeds the maximum section score")
 
 
+PolicyValidator = Callable[[Mapping[str, Any]], None]
+POLICY_REGISTRY: dict[str, tuple[str, PolicyValidator]] = {
+    "production-gates": (
+        "production-gates.yaml",
+        validate_production_gate_policy,
+    ),
+}
+
+
 def load_policy(name: str) -> dict:
-    """Return a freshly loaded, structurally validated production policy."""
+    """Return a freshly loaded policy validated for its registered shape."""
     try:
-        filename = POLICY_FILES[name]
+        filename, validator = POLICY_REGISTRY[name]
     except KeyError as exc:
         raise ValueError(f"unknown governance policy: {name}") from exc
 
@@ -136,5 +170,5 @@ def load_policy(name: str) -> dict:
     if not isinstance(loaded, Mapping):
         raise _policy_error("document must be a mapping")
     policy = dict(loaded)
-    validate_policy(policy)
+    validator(policy)
     return policy

@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from factory.contracts import validate_document
-from factory.governance.policy import validate_policy
+from factory.governance.policy import validate_production_gate_policy
 
 
 _MISSING = object()
@@ -90,7 +90,7 @@ def evaluate_production_gate(intent: Mapping, policy: Mapping) -> GateDecision:
         f"contract_invalid:{issue.path}:{issue.code}"
         for issue in validate_document("commander-intent", intent)
     )
-    validate_policy(policy)
+    validate_production_gate_policy(policy)
 
     score = sum(
         section["points"]

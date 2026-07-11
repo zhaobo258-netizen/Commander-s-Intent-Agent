@@ -5,9 +5,10 @@ import copy
 import pytest
 import yaml
 
+import factory.governance.gates as gates_module
 import factory.governance.policy as policy_module
 from factory.governance.gates import GateDecision, evaluate_production_gate
-from factory.governance.policy import load_policy
+from factory.governance.policy import load_policy, validate_production_gate_policy
 
 
 CRITICAL_PATHS = (
@@ -83,6 +84,47 @@ def test_loads_exact_commander_intent_production_policy() -> None:
         ),
         ("acceptance", 10, ["/acceptance/criteria"]),
     ]
+
+
+@pytest.mark.parametrize(
+    "critical_paths",
+    [
+        [],
+        list(CRITICAL_PATHS[:-1]),
+        list(reversed(CRITICAL_PATHS)),
+        [*CRITICAL_PATHS, "/metadata"],
+    ],
+)
+def test_production_policy_requires_exact_canonical_critical_paths(
+    production_policy: dict,
+    critical_paths: list[str],
+) -> None:
+    policy = copy.deepcopy(production_policy)
+    policy["critical_paths"] = critical_paths
+
+    with pytest.raises(ValueError, match="critical_paths.*exactly.*canonical order"):
+        validate_production_gate_policy(policy)
+
+
+@pytest.mark.parametrize("unsafe_type", ["assumption", "inference", "unknown"])
+def test_production_policy_rejects_unsafe_confirmed_source_type(
+    production_policy: dict,
+    unsafe_type: str,
+) -> None:
+    policy = copy.deepcopy(production_policy)
+    policy["confirmed_source_types"].append(unsafe_type)
+
+    with pytest.raises(ValueError, match="confirmed_source_types.*approved"):
+        validate_production_gate_policy(policy)
+
+
+def test_production_policy_allows_nonempty_safe_confirmed_source_subset(
+    production_policy: dict,
+) -> None:
+    policy = copy.deepcopy(production_policy)
+    policy["confirmed_source_types"] = ["tool_result"]
+
+    validate_production_gate_policy(policy)
 
 
 def test_production_ready_intent_scores_100_and_is_ready(
@@ -179,52 +221,22 @@ def test_unconfirmed_provenance_types_do_not_satisfy_critical_sources(
     assert decision.ready is False
 
 
-def test_parent_provenance_covers_critical_descendants(
-    production_ready_intent: dict,
-    production_policy: dict,
-) -> None:
-    policy = copy.deepcopy(production_policy)
-    policy["critical_paths"] = [
-        "/authority/allowed_actions",
-        "/authority/forbidden_actions",
-    ]
-
-    decision = evaluate_production_gate(production_ready_intent, policy)
-
-    assert decision.missing_sources == ()
-    assert decision.ready is True
-
-
-def test_child_provenance_does_not_cover_parent_or_sibling(
-    production_ready_intent: dict,
-    production_policy: dict,
-) -> None:
-    production_ready_intent["provenance"] = [
-        record
-        for record in production_ready_intent["provenance"]
-        if record["path"] != "/authority"
-    ]
-    production_ready_intent["provenance"].append(
-        {
-            "path": "/authority/allowed_actions",
-            "source_type": "tool_result",
-            "reference": "authority-tool-result",
-        }
-    )
-    policy = copy.deepcopy(production_policy)
-    policy["critical_paths"] = [
+def test_parent_provenance_covers_critical_descendants() -> None:
+    assert gates_module._source_covers(
         "/authority",
         "/authority/allowed_actions",
-        "/authority/forbidden_actions",
-    ]
-
-    decision = evaluate_production_gate(production_ready_intent, policy)
-
-    assert decision.missing_sources == (
+    )
+    assert gates_module._source_covers(
         "/authority",
         "/authority/forbidden_actions",
     )
-    assert decision.ready is False
+
+
+def test_child_provenance_does_not_cover_parent_or_sibling() -> None:
+    child = "/authority/allowed_actions"
+
+    assert gates_module._source_covers(child, "/authority") is False
+    assert gates_module._source_covers(child, "/authority/forbidden_actions") is False
 
 
 @pytest.mark.parametrize(
@@ -310,6 +322,38 @@ def test_load_policy_rejects_consumer_identifier() -> None:
         match="unknown governance policy: commander-intent",
     ):
         load_policy("commander-intent")
+
+
+def test_load_policy_dispatches_to_the_registered_policy_validator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document = {"schema_version": "test-policy"}
+    validated: list[dict] = []
+
+    def validate_test_policy(policy: dict) -> None:
+        validated.append(copy.deepcopy(policy))
+
+    monkeypatch.setitem(
+        policy_module.POLICY_REGISTRY,
+        "test-policy",
+        ("test-policy.yaml", validate_test_policy),
+    )
+
+    class FakeResource:
+        def joinpath(self, filename: str) -> "FakeResource":
+            assert filename == "test-policy.yaml"
+            return self
+
+        def read_text(self, *, encoding: str) -> str:
+            assert encoding == "utf-8"
+            return yaml.safe_dump(document)
+
+    monkeypatch.setattr(policy_module, "files", lambda _package: FakeResource())
+
+    loaded = load_policy("test-policy")
+
+    assert loaded == document
+    assert validated == [document]
 
 
 def test_load_policy_rejects_malformed_policy_with_useful_message(
