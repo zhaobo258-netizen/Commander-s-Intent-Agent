@@ -18,6 +18,9 @@ commander-factory = "factory.cli.main:main"
 [tool.setuptools.packages.find]
 include = ["factory*"]
 
+[tool.setuptools.package-data]
+"factory.contracts" = ["*.schema.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"

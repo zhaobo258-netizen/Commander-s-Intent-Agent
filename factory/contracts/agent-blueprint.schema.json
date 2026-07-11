@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://commander-agent-factory.local/contracts/agent-blueprint.schema.json",
+  "title": "Agent Blueprint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "metadata",
+    "commander_intent_ref",
+    "capabilities",
+    "skills",
+    "workflow",
+    "resources",
+    "harness",
+    "evaluation",
+    "adapters"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "metadata": {"$ref": "#/$defs/metadata"},
+    "commander_intent_ref": {"$ref": "#/$defs/commander_intent_ref"},
+    "capabilities": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/capability"}
+    },
+    "skills": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/skill"}
+    },
+    "workflow": {"$ref": "#/$defs/workflow"},
+    "resources": {"$ref": "#/$defs/resources"},
+    "harness": {"$ref": "#/$defs/harness"},
+    "evaluation": {"$ref": "#/$defs/evaluation"},
+    "adapters": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/adapter"}
+    }
+  },
+  "$defs": {
+    "non_empty_string": {
+      "type": "string",
+      "minLength": 1
+    },
+    "string_list": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/non_empty_string"}
+    },
+    "intent_paths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^/"
+      }
+    },
+    "factory_state": {
+      "enum": [
+        "NEW",
+        "DISCOVERY",
+        "INTERVIEWING",
+        "INTENT_CONFIRMATION",
+        "READY",
+        "BLUEPRINTING",
+        "PRODUCING",
+        "VALIDATING",
+        "CANDIDATE_READY",
+        "DELIVERED",
+        "REVIEW_INTAKE",
+        "REVIEWING",
+        "REVIEW_READY",
+        "OPTIMIZATION_PROPOSED",
+        "OPTIMIZATION_APPROVED",
+        "OPTIMIZING",
+        "BLOCKED",
+        "CANCELLED"
+      ]
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"$ref": "#/$defs/non_empty_string"},
+        "version": {"$ref": "#/$defs/non_empty_string"}
+      }
+    },
+    "commander_intent_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"$ref": "#/$defs/non_empty_string"},
+        "version": {"$ref": "#/$defs/non_empty_string"}
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description", "intent_paths"],
+      "properties": {
+        "id": {"$ref": "#/$defs/non_empty_string"},
+        "name": {"$ref": "#/$defs/non_empty_string"},
+        "description": {"$ref": "#/$defs/non_empty_string"},
+        "intent_paths": {"$ref": "#/$defs/intent_paths"}
+      }
+    },
+    "skill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description", "intent_paths"],
+      "properties": {
+        "id": {"$ref": "#/$defs/non_empty_string"},
+        "name": {"$ref": "#/$defs/non_empty_string"},
+        "description": {"$ref": "#/$defs/non_empty_string"},
+        "intent_paths": {"$ref": "#/$defs/intent_paths"}
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["steps"],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/workflow_step"}
+        }
+      }
+    },
+    "workflow_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "action", "intent_paths"],
+      "properties": {
+        "id": {"$ref": "#/$defs/non_empty_string"},
+        "name": {"$ref": "#/$defs/non_empty_string"},
+        "action": {"$ref": "#/$defs/non_empty_string"},
+        "intent_paths": {"$ref": "#/$defs/intent_paths"}
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["data", "knowledge", "tools"],
+      "properties": {
+        "data": {"$ref": "#/$defs/string_list"},
+        "knowledge": {"$ref": "#/$defs/string_list"},
+        "tools": {"$ref": "#/$defs/string_list"}
+      }
+    },
+    "harness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "error", "human_review"],
+      "properties": {
+        "state": {"$ref": "#/$defs/harness_state"},
+        "error": {"$ref": "#/$defs/harness_error"},
+        "human_review": {"$ref": "#/$defs/harness_human_review"}
+      }
+    },
+    "harness_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checkpoint_required", "tracked_fields"],
+      "properties": {
+        "checkpoint_required": {"type": "boolean"},
+        "tracked_fields": {"$ref": "#/$defs/string_list"}
+      }
+    },
+    "harness_error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["retry_limit", "on_exhaustion"],
+      "properties": {
+        "retry_limit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "on_exhaustion": {"$ref": "#/$defs/non_empty_string"}
+      }
+    },
+    "harness_human_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "stages"],
+      "properties": {
+        "required": {"type": "boolean"},
+        "stages": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/factory_state"}
+        }
+      }
+    },
+    "evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cases"],
+      "properties": {
+        "cases": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/evaluation_case"}
+        }
+      }
+    },
+    "evaluation_case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "description", "expected", "intent_paths"],
+      "properties": {
+        "id": {"$ref": "#/$defs/non_empty_string"},
+        "type": {
+          "enum": ["Golden", "Failure", "Boundary", "Unknown"]
+        },
+        "description": {"$ref": "#/$defs/non_empty_string"},
+        "expected": {"$ref": "#/$defs/non_empty_string"},
+        "intent_paths": {"$ref": "#/$defs/intent_paths"}
+      }
+    },
+    "adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status"],
+      "properties": {
+        "name": {"$ref": "#/$defs/non_empty_string"},
+        "status": {"$ref": "#/$defs/non_empty_string"}
+      }
+    }
+  }
+}

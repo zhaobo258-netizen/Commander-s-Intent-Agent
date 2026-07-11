@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://commander-agent-factory.local/contracts/factory-job.schema.json",
+  "title": "Factory Job",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "job_id",
+    "mode",
+    "name",
+    "status",
+    "scope",
+    "created_at",
+    "updated_at",
+    "checkpoint",
+    "missing_items",
+    "approvals",
+    "status_layers",
+    "evidence",
+    "transitions"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "job_id": {"$ref": "#/$defs/non_empty_string"},
+    "mode": {
+      "enum": ["CREATE", "REVIEW", "OPTIMIZE"]
+    },
+    "name": {"$ref": "#/$defs/non_empty_string"},
+    "status": {"$ref": "#/$defs/factory_state"},
+    "scope": {"$ref": "#/$defs/scope"},
+    "created_at": {"$ref": "#/$defs/date_time"},
+    "updated_at": {"$ref": "#/$defs/date_time"},
+    "checkpoint": {"$ref": "#/$defs/checkpoint"},
+    "missing_items": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/non_empty_string"}
+    },
+    "approvals": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/approval"}
+    },
+    "status_layers": {"$ref": "#/$defs/status_layers"},
+    "evidence": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/evidence_record"}
+    },
+    "transitions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/transition"}
+    }
+  },
+  "$defs": {
+    "non_empty_string": {
+      "type": "string",
+      "minLength": 1
+    },
+    "date_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "factory_state": {
+      "enum": [
+        "NEW",
+        "DISCOVERY",
+        "INTERVIEWING",
+        "INTENT_CONFIRMATION",
+        "READY",
+        "BLUEPRINTING",
+        "PRODUCING",
+        "VALIDATING",
+        "CANDIDATE_READY",
+        "DELIVERED",
+        "REVIEW_INTAKE",
+        "REVIEWING",
+        "REVIEW_READY",
+        "OPTIMIZATION_PROPOSED",
+        "OPTIMIZATION_APPROVED",
+        "OPTIMIZING",
+        "BLOCKED",
+        "CANCELLED"
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "target_refs"],
+      "properties": {
+        "summary": {"$ref": "#/$defs/non_empty_string"},
+        "target_refs": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/non_empty_string"}
+        }
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sequence", "state", "next_action", "updated_at", "evidence_ref"],
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {"$ref": "#/$defs/factory_state"},
+        "next_action": {"$ref": "#/$defs/non_empty_string"},
+        "updated_at": {"$ref": "#/$defs/date_time"},
+        "evidence_ref": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "requested_at", "ref"],
+      "properties": {
+        "id": {"$ref": "#/$defs/non_empty_string"},
+        "status": {"$ref": "#/$defs/non_empty_string"},
+        "requested_at": {"$ref": "#/$defs/date_time"},
+        "resolved_at": {"$ref": "#/$defs/date_time"},
+        "ref": {"$ref": "#/$defs/non_empty_string"}
+      }
+    },
+    "status_layers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "local_generated",
+        "local_validated",
+        "installed",
+        "published",
+        "real_usage_verified"
+      ],
+      "properties": {
+        "local_generated": {"type": "boolean"},
+        "local_validated": {"type": "boolean"},
+        "installed": {"type": "boolean"},
+        "published": {"type": "boolean"},
+        "real_usage_verified": {"type": "boolean"}
+      }
+    },
+    "evidence_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref", "status", "at"],
+      "properties": {
+        "kind": {"$ref": "#/$defs/non_empty_string"},
+        "ref": {"$ref": "#/$defs/non_empty_string"},
+        "status": {
+          "enum": ["verified", "inferred", "unverified"]
+        },
+        "at": {"$ref": "#/$defs/date_time"}
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "trigger", "evidence", "at"],
+      "properties": {
+        "from": {"$ref": "#/$defs/factory_state"},
+        "to": {"$ref": "#/$defs/factory_state"},
+        "trigger": {"$ref": "#/$defs/non_empty_string"},
+        "evidence": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/non_empty_string"}
+        },
+        "at": {"$ref": "#/$defs/date_time"}
+      }
+    }
+  }
+}

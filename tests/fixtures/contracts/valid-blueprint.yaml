@@ -1,0 +1,56 @@
+schema_version: "1.0"
+metadata:
+  name: Neighborhood Helper Blueprint
+  version: "1.0.0"
+commander_intent_ref:
+  name: regional-manager-opportunity-agent
+  version: "1.0"
+capabilities:
+  - id: capability-1
+    name: Preparation gap detection
+    description: Identify missing fields in a provided fictional preparation form.
+    intent_paths:
+      - /key_tasks/0
+skills:
+  - id: skill-1
+    name: inspect-preparation-form
+    description: Read a structured form and report missing required fields.
+    intent_paths:
+      - /resources/data/0
+workflow:
+  steps:
+    - id: step-1
+      name: Inspect input
+      action: Compare the provided form with the required-field checklist.
+      intent_paths:
+        - /key_tasks/0/outcome
+resources:
+  data:
+    - Fictional event preparation form
+  knowledge:
+    - Public community event checklist guidance
+  tools:
+    - Read-only document viewer
+harness:
+  state:
+    checkpoint_required: true
+    tracked_fields:
+      - source_reference
+  error:
+    retry_limit: 1
+    on_exhaustion: Request human review.
+  human_review:
+    required: true
+    stages:
+      - CANDIDATE_READY
+evaluation:
+  cases:
+    - id: case-1
+      type: Golden
+      description: A form with one missing owner is identified accurately.
+      expected: Report the missing owner and cite the input field.
+      intent_paths:
+        - /acceptance/criteria/0
+adapters:
+  - name: local-file
+    status: available
