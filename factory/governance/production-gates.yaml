@@ -1,0 +1,26 @@
+schema_version: "1.0"
+threshold: 80
+confirmed_source_types: [user_confirmed, observed_file, tool_result]
+critical_paths: [/mission, /user, /desired_end_state, /resources, /authority, /acceptance]
+sections:
+  - id: mission
+    points: 15
+    required_paths: [/mission/statement, /mission/problem]
+  - id: user
+    points: 15
+    required_paths: [/user/role, /user/scenario]
+  - id: desired_end_state
+    points: 20
+    required_paths: [/desired_end_state/before, /desired_end_state/after, /desired_end_state/success_metrics]
+  - id: key_tasks
+    points: 10
+    required_paths: [/key_tasks]
+  - id: resources
+    points: 15
+    required_paths: [/resources/data, /resources/knowledge, /resources/tools]
+  - id: authority
+    points: 15
+    required_paths: [/authority/allowed_actions, /authority/forbidden_actions, /authority/human_review]
+  - id: acceptance
+    points: 10
+    required_paths: [/acceptance/criteria]

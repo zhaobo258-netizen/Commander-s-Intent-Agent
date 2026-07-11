@@ -20,6 +20,7 @@ include = ["factory*"]
 
 [tool.setuptools.package-data]
 "factory.contracts" = ["*.schema.json"]
+"factory.governance" = ["*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
