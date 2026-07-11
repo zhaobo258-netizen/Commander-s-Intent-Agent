@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from datetime import datetime
+from typing import cast
 
 from factory.contracts import validate_document
 from factory.errors import TransitionError
@@ -252,6 +253,29 @@ def _validate_transition_history(
         )
 
 
+def _validate_lifecycle_snapshot(job: object, stage: str) -> None:
+    _validate_factory_job(job, stage)
+    validated_job = cast(Mapping, job)
+    _validate_transition_history(
+        validated_job,
+        validated_job["mode"],
+        validated_job["status"],
+        validated_job["checkpoint"]["state"],
+    )
+    _validate_audit_timeline(validated_job)
+    if validated_job["checkpoint"]["sequence"] < len(
+        validated_job["transitions"]
+    ):
+        raise TransitionError(
+            "checkpoint sequence cannot be less than recorded transition count"
+        )
+
+
+def validate_lifecycle_snapshot(job: Mapping) -> None:
+    """Validate a persisted lifecycle snapshot without modifying it."""
+    _validate_lifecycle_snapshot(job, "lifecycle snapshot")
+
+
 def transition(
     job: Mapping,
     target: str,
@@ -260,7 +284,7 @@ def transition(
     now: datetime,
 ) -> dict:
     """Return a copied factory job advanced to an allowed target state."""
-    _validate_factory_job(job, "input")
+    _validate_lifecycle_snapshot(job, "input")
     if not isinstance(trigger, str) or not trigger.strip():
         raise TransitionError("transition trigger must be a non-empty string")
     evidence_refs = _validated_evidence(evidence)
@@ -273,13 +297,6 @@ def transition(
 
     current = job["status"]
     checkpoint_state = job["checkpoint"]["state"]
-    _validate_transition_history(
-        job,
-        job["mode"],
-        current,
-        checkpoint_state,
-    )
-    _validate_audit_timeline(job)
     _validate_now(job, now)
 
     if current == "BLOCKED":
@@ -323,5 +340,5 @@ def transition(
             "at": at,
         }
     )
-    _validate_factory_job(transitioned, "output")
+    _validate_lifecycle_snapshot(transitioned, "output")
     return transitioned

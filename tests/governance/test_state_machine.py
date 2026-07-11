@@ -846,6 +846,69 @@ def test_valid_partial_history_can_continue(valid_job: dict) -> None:
     assert transitioned["transitions"][-1]["from"] == "VALIDATING"
 
 
+def test_validate_lifecycle_snapshot_accepts_initial_and_partial_history(
+    new_job: dict,
+    valid_job: dict,
+) -> None:
+    state_machine = _state_machine_module()
+    initial_before = copy.deepcopy(new_job)
+    partial_before = copy.deepcopy(valid_job)
+
+    state_machine.validate_lifecycle_snapshot(new_job)
+    state_machine.validate_lifecycle_snapshot(valid_job)
+
+    assert new_job == initial_before
+    assert valid_job == partial_before
+
+
+def test_validate_lifecycle_snapshot_rejects_sequence_below_history_count(
+    valid_job: dict,
+) -> None:
+    state_machine = _state_machine_module()
+    valid_job["checkpoint"]["sequence"] = 0
+
+    with pytest.raises(TransitionError, match="sequence.*transition"):
+        state_machine.validate_lifecycle_snapshot(valid_job)
+
+
+def test_validate_lifecycle_snapshot_accepts_ready_and_resumed_new_paths(
+    new_job: dict,
+) -> None:
+    state_machine = _state_machine_module()
+    now = datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc)
+    ready = copy.deepcopy(new_job)
+    for target in (
+        "DISCOVERY",
+        "INTERVIEWING",
+        "INTENT_CONFIRMATION",
+        "READY",
+    ):
+        ready = state_machine.transition(
+            ready,
+            target,
+            f"advance_to_{target.lower()}",
+            [f"evidence/{target.lower()}.md"],
+            now,
+        )
+    state_machine.validate_lifecycle_snapshot(ready)
+
+    blocked = state_machine.transition(
+        new_job,
+        "BLOCKED",
+        "needs_scope",
+        ["evidence/blocker.md"],
+        now,
+    )
+    resumed_new = state_machine.transition(
+        blocked,
+        "NEW",
+        "scope_available",
+        ["evidence/scope.md"],
+        now,
+    )
+    state_machine.validate_lifecycle_snapshot(resumed_new)
+
+
 def test_transition_rejects_invalid_factory_job_contract(new_job: dict) -> None:
     state_machine = _state_machine_module()
     del new_job["job_id"]

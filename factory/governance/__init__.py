@@ -6,7 +6,11 @@ from factory.governance.policy import (
     validate_production_gate_policy,
     validate_state_machine_policy,
 )
-from factory.governance.state_machine import allowed_next, transition
+from factory.governance.state_machine import (
+    allowed_next,
+    transition,
+    validate_lifecycle_snapshot,
+)
 
 __all__ = [
     "GateDecision",
@@ -14,6 +18,7 @@ __all__ = [
     "evaluate_production_gate",
     "load_policy",
     "transition",
+    "validate_lifecycle_snapshot",
     "validate_production_gate_policy",
     "validate_state_machine_policy",
 ]

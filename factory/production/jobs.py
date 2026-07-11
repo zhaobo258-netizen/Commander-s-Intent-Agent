@@ -9,14 +9,31 @@ import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from datetime import datetime
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from sysconfig import get_path
+from typing import cast
 
 from factory.contracts import ValidationIssue, validate_document
-from factory.errors import ContractValidationError, FactoryError, UnsafePathError
+from factory.errors import (
+    ContractValidationError,
+    FactoryError,
+    TransitionError,
+    UnsafePathError,
+)
+from factory.governance.state_machine import validate_lifecycle_snapshot
 
 
 _JOB_DIRECTORIES = ("intake", "evidence", "reports", "output")
+_DISTRIBUTION_NAME = "commander-intent-agent-factory"
+_DISTRIBUTION_TEMPLATE_PARTS = (
+    "share",
+    _DISTRIBUTION_NAME,
+    "templates",
+    "job",
+)
+_IDENTITY_FIELDS = ("schema_version", "job_id", "mode", "name", "created_at")
+_MISSING = object()
 _MODE_CONTAINERS = {
     "CREATE": "jobs",
     "REVIEW": "reviews",
@@ -43,6 +60,26 @@ def _target_template_root() -> Path:
     )
 
 
+def _metadata_template_paths(filename: str) -> tuple[Path, ...]:
+    try:
+        installed_distribution = distribution(_DISTRIBUTION_NAME)
+    except PackageNotFoundError:
+        return ()
+
+    matches: list[Path] = []
+    expected_suffix = (*_DISTRIBUTION_TEMPLATE_PARTS, filename)
+    for record in installed_distribution.files or ():
+        if tuple(Path(str(record)).parts[-len(expected_suffix) :]) != expected_suffix:
+            continue
+        try:
+            located = Path(installed_distribution.locate_file(record))
+            if located.is_file():
+                matches.append(located)
+        except (OSError, TypeError, ValueError):
+            continue
+    return tuple(matches)
+
+
 def _contract_error(
     context: str,
     issues: Sequence[ValidationIssue],
@@ -63,11 +100,31 @@ def _validate_job(job: object, context: str) -> None:
         raise _contract_error(context, issues)
 
 
+def _validate_job_lifecycle(job: Mapping, context: str) -> None:
+    try:
+        validate_lifecycle_snapshot(job)
+    except TransitionError as exc:
+        raise ContractValidationError(
+            f"invalid lifecycle snapshot for {context}: {exc}"
+        ) from exc
+
+
+def _validate_job_snapshot(job: object, context: str) -> None:
+    _validate_job(job, context)
+    _validate_job_lifecycle(cast(Mapping, job), context)
+
+
 def _validate_component(value: object, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise UnsafePathError(f"unsafe {label}: must be a non-empty string")
     if value != value.strip():
         raise UnsafePathError(f"unsafe {label}: surrounding whitespace is not allowed")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise UnsafePathError(
+            f"unsafe {label}: value must be valid UTF-8"
+        ) from exc
     if (
         "/" in value
         or "\\" in value
@@ -132,6 +189,7 @@ def _safe_job_path(
 def _render_template(filename: str, values: Mapping[str, str]) -> str:
     candidates = (
         _TEMPLATE_ROOT / filename,
+        *_metadata_template_paths(filename),
         _target_template_root() / filename,
         _INSTALLED_TEMPLATE_ROOT / filename,
     )
@@ -166,15 +224,18 @@ def _fsync_parent(path: Path) -> None:
 
 def _atomic_write_json(path: Path, document: Mapping) -> None:
     try:
-        payload = json.dumps(
-            document,
-            ensure_ascii=False,
-            indent=2,
-            allow_nan=False,
-        ) + "\n"
+        payload = (
+            json.dumps(
+                document,
+                ensure_ascii=False,
+                indent=2,
+                allow_nan=False,
+            )
+            + "\n"
+        ).encode("utf-8")
     except (TypeError, ValueError) as exc:
         raise ContractValidationError(
-            f"factory-job status is not JSON-compatible: {exc}"
+            f"factory-job status is not JSON-compatible UTF-8: {exc}"
         ) from exc
 
     temporary_path: Path | None = None
@@ -185,7 +246,7 @@ def _atomic_write_json(path: Path, document: Mapping) -> None:
             dir=path.parent,
         )
         temporary_path = Path(raw_temporary_path)
-        with os.fdopen(file_descriptor, "w", encoding="utf-8", newline="\n") as stream:
+        with os.fdopen(file_descriptor, "wb") as stream:
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
@@ -269,7 +330,7 @@ def create_job(
     rendered_job = _render_template("JOB.md.tmpl", values)
     rendered_intent = _render_template("COMMANDER_INTENT.md.tmpl", values)
     job = _initial_job(mode, safe_name, safe_job_id, aware_now)
-    _validate_job(job, "new job")
+    _validate_job_snapshot(job, "new job")
 
     created_job_dir = False
     try:
@@ -320,7 +381,7 @@ def load_job(job_dir: Path) -> dict:
         raise ContractValidationError(
             f"malformed status for factory job {status_path}: {detail}"
         ) from exc
-    _validate_job(loaded, str(status_path))
+    _validate_job_snapshot(loaded, str(status_path))
     return deepcopy(dict(loaded))
 
 
@@ -354,6 +415,86 @@ def _require_history_prefix(
         )
 
 
+def _require_matching_identity(candidate: Mapping, persisted: Mapping) -> None:
+    for field in _IDENTITY_FIELDS:
+        if candidate.get(field, _MISSING) != persisted.get(field, _MISSING):
+            raise ContractValidationError(
+                f"factory job identity mismatch for {field}"
+            )
+
+
+def _audit_instant(value: object, field: str) -> datetime:
+    try:
+        if not isinstance(value, str):
+            raise ValueError("timestamp must be a string")
+        normalized = (
+            f"{value[:-1]}+00:00"
+            if value[-1:].lower() == "z"
+            else value
+        )
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError("timezone offset is required")
+        return parsed
+    except (TypeError, ValueError) as exc:
+        raise ContractValidationError(
+            f"invalid audit timestamp for {field}: {value!r}"
+        ) from exc
+
+
+def _canonical_json(value: object) -> bytes:
+    try:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ContractValidationError(
+            f"external_state must be canonical JSON-compatible UTF-8: {exc}"
+        ) from exc
+
+
+def _require_monotonic_snapshot(candidate: Mapping, persisted: Mapping) -> None:
+    candidate_checkpoint = candidate["checkpoint"]
+    persisted_checkpoint = persisted["checkpoint"]
+    if candidate_checkpoint["sequence"] < persisted_checkpoint["sequence"]:
+        raise ContractValidationError(
+            "checkpoint sequence cannot regress persisted sequence"
+        )
+
+    audit_fields = (
+        ("updated_at", candidate["updated_at"], persisted["updated_at"]),
+        (
+            "checkpoint.updated_at",
+            candidate_checkpoint["updated_at"],
+            persisted_checkpoint["updated_at"],
+        ),
+    )
+    for field, candidate_value, persisted_value in audit_fields:
+        if _audit_instant(candidate_value, field) < _audit_instant(
+            persisted_value,
+            f"persisted {field}",
+        ):
+            raise ContractValidationError(
+                f"audit metadata regression for {field}"
+            )
+
+    candidate_has_external = "external_state" in candidate
+    persisted_has_external = "external_state" in persisted
+    external_matches = candidate_has_external == persisted_has_external
+    if external_matches and candidate_has_external:
+        external_matches = _canonical_json(candidate["external_state"]) == _canonical_json(
+            persisted["external_state"]
+        )
+    if not external_matches:
+        raise ContractValidationError(
+            "external_state is resume-owned and must match persisted state exactly"
+        )
+
+
 def save_checkpoint(job_dir: Path, job: Mapping, evidence: Mapping) -> None:
     """Validate and atomically persist a copied job with new evidence."""
     if not isinstance(job, Mapping):
@@ -361,6 +502,7 @@ def save_checkpoint(job_dir: Path, job: Mapping, evidence: Mapping) -> None:
     existing = load_job(Path(job_dir))
     persisted = deepcopy(dict(job))
 
+    _require_matching_identity(persisted, existing)
     _require_history_prefix(persisted, existing, "evidence", "evidence")
     _require_history_prefix(persisted, existing, "transitions", "transition")
 
@@ -384,18 +526,35 @@ def save_checkpoint(job_dir: Path, job: Mapping, evidence: Mapping) -> None:
     existing_evidence.append(evidence_record)
 
     _validate_job(persisted, "checkpoint save")
+    _require_monotonic_snapshot(persisted, existing)
+    _validate_job_lifecycle(persisted, "checkpoint save")
     _atomic_write_json(Path(job_dir) / "status.json", persisted)
+
+
+def _require_string_json_keys(value: object, path: str = "$") -> None:
+    if isinstance(value, Mapping):
+        for key, nested in value.items():
+            if not isinstance(key, str):
+                raise ContractValidationError(
+                    f"external probe result requires string object keys at {path}"
+                )
+            _require_string_json_keys(nested, f"{path}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, nested in enumerate(value):
+            _require_string_json_keys(nested, f"{path}[{index}]")
 
 
 def _json_mapping(value: object) -> dict:
     if not isinstance(value, Mapping):
         raise ContractValidationError("external probe result must be a mapping")
+    _require_string_json_keys(value)
     try:
         serialized = json.dumps(value, ensure_ascii=False, allow_nan=False)
+        serialized.encode("utf-8")
         normalized = json.loads(serialized)
     except (TypeError, ValueError) as exc:
         raise ContractValidationError(
-            f"external probe result must be JSON-compatible: {exc}"
+            f"external probe result must be JSON-compatible UTF-8: {exc}"
         ) from exc
     if not isinstance(normalized, dict):
         raise ContractValidationError("external probe result must be a JSON object")
@@ -415,6 +574,6 @@ def resume_job(
 
     resumed = deepcopy(job)
     resumed["external_state"] = _json_mapping(probed)
-    _validate_job(resumed, "resumed job")
+    _validate_job_snapshot(resumed, "resumed job")
     _atomic_write_json(Path(job_dir) / "status.json", resumed)
     return deepcopy(resumed)

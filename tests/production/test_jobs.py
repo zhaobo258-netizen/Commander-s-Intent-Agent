@@ -5,7 +5,7 @@ import json
 import os
 import stat
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -111,6 +111,26 @@ def test_create_job_rejects_unsafe_path_components_before_mutation(
     arguments[field] = unsafe
 
     with pytest.raises(UnsafePathError):
+        create_job(
+            tmp_path,
+            "CREATE",
+            arguments["name"],
+            NOW,
+            job_id=arguments["job_id"],
+        )
+
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("field", ["name", "job_id"])
+def test_create_job_rejects_lone_surrogate_path_components(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    arguments = {"name": "safe-agent", "job_id": "job-safe"}
+    arguments[field] = "\ud800"
+
+    with pytest.raises(UnsafePathError, match="UTF-8"):
         create_job(
             tmp_path,
             "CREATE",
@@ -256,6 +276,123 @@ def test_load_job_returns_independent_data(tmp_path: Path) -> None:
     loaded["status_layers"]["published"] = True
 
     assert load_job(job_dir)["status_layers"]["published"] is False
+
+
+def test_save_checkpoint_rejects_schema_valid_illegal_lifecycle(
+    tmp_path: Path,
+) -> None:
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "lifecycle-agent",
+        NOW,
+        job_id="job-lifecycle",
+    )
+    corrupted = load_job(job_dir)
+    corrupted["status"] = "DELIVERED"
+    corrupted["checkpoint"].update(
+        {"state": "DELIVERED", "next_action": "completed:DELIVERED"}
+    )
+    before = (job_dir / "status.json").read_bytes()
+
+    with pytest.raises(ContractValidationError, match="lifecycle.*transition history"):
+        save_checkpoint(
+            job_dir,
+            corrupted,
+            {"kind": "answer", "ref": "input:illegal"},
+        )
+
+    assert (job_dir / "status.json").read_bytes() == before
+
+
+def _write_corrupted_status(job_dir: Path, document: dict) -> None:
+    (job_dir / "status.json").write_text(
+        json.dumps(document, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _illegal_delivered_snapshot(document: dict) -> None:
+    document["status"] = "DELIVERED"
+    document["checkpoint"].update(
+        {"state": "DELIVERED", "next_action": "completed:DELIVERED"}
+    )
+
+
+def _illegal_create_history_snapshot(document: dict) -> None:
+    document["status"] = "REVIEWING"
+    document["checkpoint"].update(
+        {"sequence": 1, "state": "REVIEWING", "next_action": "continue:REVIEWING"}
+    )
+    document["transitions"] = [
+        {
+            "from": "NEW",
+            "to": "REVIEWING",
+            "trigger": "illegal_cross_mode",
+            "evidence": ["evidence/illegal.md"],
+            "at": NOW.isoformat(),
+        }
+    ]
+
+
+def _disconnected_history_snapshot(document: dict) -> None:
+    document["status"] = "INTENT_CONFIRMATION"
+    document["checkpoint"].update(
+        {
+            "sequence": 2,
+            "state": "INTENT_CONFIRMATION",
+            "next_action": "continue:INTENT_CONFIRMATION",
+        }
+    )
+    document["transitions"] = [
+        {
+            "from": "NEW",
+            "to": "DISCOVERY",
+            "trigger": "scope_received",
+            "evidence": ["evidence/scope.md"],
+            "at": NOW.isoformat(),
+        },
+        {
+            "from": "INTERVIEWING",
+            "to": "INTENT_CONFIRMATION",
+            "trigger": "intent_drafted",
+            "evidence": ["evidence/intent.md"],
+            "at": NOW.isoformat(),
+        },
+    ]
+
+
+def _impossible_audit_snapshot(document: dict) -> None:
+    document["updated_at"] = "2026-07-11T08:59:59+00:00"
+
+
+@pytest.mark.parametrize(
+    "corrupt",
+    [
+        _illegal_delivered_snapshot,
+        _illegal_create_history_snapshot,
+        _disconnected_history_snapshot,
+        _impossible_audit_snapshot,
+    ],
+)
+def test_load_job_rejects_schema_valid_illegal_lifecycle_snapshots(
+    tmp_path: Path,
+    corrupt,
+) -> None:
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "corrupted-agent",
+        NOW,
+        job_id="job-corrupted",
+    )
+    document = load_job(job_dir)
+    corrupt(document)
+    assert validate_document("factory-job", document) == ()
+    _write_corrupted_status(job_dir, document)
+
+    with pytest.raises(ContractValidationError, match="lifecycle"):
+        load_job(job_dir)
 
 
 def test_job_checkpoint_is_atomic_and_resumable(tmp_path: Path) -> None:
@@ -413,6 +550,153 @@ def test_truth_layers_do_not_cascade(tmp_path: Path) -> None:
     }
 
 
+def test_save_checkpoint_rejects_snapshot_from_another_job(
+    tmp_path: Path,
+) -> None:
+    target_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "target-agent",
+        NOW,
+        job_id="job-target",
+    )
+    source_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "source-agent",
+        NOW,
+        job_id="job-source",
+    )
+    before = (target_dir / "status.json").read_bytes()
+
+    with pytest.raises(ContractValidationError, match="identity.*job_id"):
+        save_checkpoint(
+            target_dir,
+            load_job(source_dir),
+            {"kind": "answer", "ref": "input:cross-job"},
+        )
+
+    assert (target_dir / "status.json").read_bytes() == before
+
+
+def test_save_checkpoint_rejects_sequence_regression_but_allows_equal(
+    tmp_path: Path,
+) -> None:
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "sequence-agent",
+        NOW,
+        job_id="job-sequence",
+    )
+    advanced = load_job(job_dir)
+    advanced["checkpoint"]["sequence"] = 3
+    save_checkpoint(
+        job_dir,
+        advanced,
+        {"kind": "answer", "ref": "input:advance"},
+    )
+    equal = load_job(job_dir)
+    save_checkpoint(
+        job_dir,
+        equal,
+        {"kind": "answer", "ref": "input:equal"},
+    )
+    assert load_job(job_dir)["checkpoint"]["sequence"] == 3
+
+    regressed = load_job(job_dir)
+    regressed["checkpoint"]["sequence"] = 1
+    before = (job_dir / "status.json").read_bytes()
+    with pytest.raises(ContractValidationError, match="sequence.*regress"):
+        save_checkpoint(
+            job_dir,
+            regressed,
+            {"kind": "answer", "ref": "input:regressed"},
+        )
+
+    assert (job_dir / "status.json").read_bytes() == before
+
+
+@pytest.mark.parametrize("field", ["updated_at", "checkpoint.updated_at"])
+def test_save_checkpoint_rejects_audit_regression_by_instant(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "audit-agent",
+        NOW,
+        job_id="job-audit",
+    )
+    advanced = load_job(job_dir)
+    advanced["updated_at"] = "2026-07-11T11:30:00+02:00"
+    advanced["checkpoint"]["updated_at"] = "2026-07-11T11:30:00+02:00"
+    save_checkpoint(
+        job_dir,
+        advanced,
+        {"kind": "answer", "ref": "input:advance"},
+    )
+    equal = load_job(job_dir)
+    save_checkpoint(
+        job_dir,
+        equal,
+        {"kind": "answer", "ref": "input:equal"},
+    )
+
+    regressed = load_job(job_dir)
+    earlier_same_instant_basis = "2026-07-11T04:29:59-05:00"
+    if field == "updated_at":
+        regressed["updated_at"] = earlier_same_instant_basis
+    else:
+        regressed["checkpoint"]["updated_at"] = earlier_same_instant_basis
+    before = (job_dir / "status.json").read_bytes()
+
+    with pytest.raises(ContractValidationError, match="audit.*regress"):
+        save_checkpoint(
+            job_dir,
+            regressed,
+            {"kind": "answer", "ref": "input:regressed"},
+        )
+
+    assert (job_dir / "status.json").read_bytes() == before
+
+
+@pytest.mark.parametrize("stale_kind", ["missing", "replaced", "type_changed"])
+def test_save_checkpoint_cannot_erase_or_replace_resume_owned_external_state(
+    tmp_path: Path,
+    stale_kind: str,
+) -> None:
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "external-state-agent",
+        NOW,
+        job_id="job-external-state",
+    )
+    if stale_kind == "missing":
+        stale = load_job(job_dir)
+        resume_job(job_dir, lambda _: {"fresh": True})
+    elif stale_kind == "replaced":
+        resume_job(job_dir, lambda _: {"revision": 1})
+        stale = load_job(job_dir)
+        resume_job(job_dir, lambda _: {"revision": 2})
+    else:
+        resume_job(job_dir, lambda _: {"value": 1})
+        stale = load_job(job_dir)
+        stale["external_state"] = {"value": True}
+
+    before = (job_dir / "status.json").read_bytes()
+    with pytest.raises(ContractValidationError, match="external_state"):
+        save_checkpoint(
+            job_dir,
+            stale,
+            {"kind": "answer", "ref": "input:stale"},
+        )
+
+    assert (job_dir / "status.json").read_bytes() == before
+
+
 @pytest.mark.parametrize("mutation", ["remove", "rewrite"])
 def test_save_checkpoint_rejects_persisted_evidence_prefix_tampering(
     tmp_path: Path,
@@ -558,6 +842,29 @@ def test_atomic_replace_failure_preserves_old_status_and_cleans_temp(
     assert not list(job_dir.glob("*.tmp"))
 
 
+def test_atomic_writer_wraps_lone_surrogate_without_replacing_status(
+    tmp_path: Path,
+) -> None:
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "unicode-agent",
+        NOW,
+        job_id="job-unicode",
+    )
+    before = (job_dir / "status.json").read_bytes()
+
+    with pytest.raises(FactoryError, match="JSON-compatible|UTF-8"):
+        save_checkpoint(
+            job_dir,
+            load_job(job_dir),
+            {"kind": "answer", "ref": "\ud800"},
+        )
+
+    assert (job_dir / "status.json").read_bytes() == before
+    assert not list(job_dir.glob("*.tmp"))
+
+
 def test_resume_replace_failure_preserves_previous_external_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -659,6 +966,62 @@ def test_template_loader_supports_pip_target_wheel_layout(
     assert load_job(job_dir)["name"] == "target-agent"
 
 
+def test_template_loader_prefers_installed_distribution_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    metadata_templates = tmp_path / "metadata-data" / "templates" / "job"
+    metadata_templates.mkdir(parents=True)
+    source_templates = Path(__file__).parents[2] / "templates" / "job"
+    filenames = ("JOB.md.tmpl", "COMMANDER_INTENT.md.tmpl")
+    for filename in filenames:
+        (metadata_templates / filename).write_bytes(
+            (source_templates / filename).read_bytes()
+        )
+
+    records = [
+        PurePosixPath(
+            "../../../share/commander-intent-agent-factory/templates/job"
+        )
+        / filename
+        for filename in filenames
+    ]
+    located: list[PurePosixPath] = []
+
+    class FakeDistribution:
+        files = records
+
+        def locate_file(self, record: PurePosixPath) -> Path:
+            located.append(record)
+            return metadata_templates / record.name
+
+    monkeypatch.setattr(
+        jobs_module,
+        "distribution",
+        lambda name: FakeDistribution(),
+        raising=False,
+    )
+    monkeypatch.setattr(jobs_module, "_TEMPLATE_ROOT", tmp_path / "missing-checkout")
+    monkeypatch.setattr(
+        jobs_module,
+        "_INSTALLED_TEMPLATE_ROOT",
+        tmp_path / "missing-prefix",
+    )
+    fake_module = tmp_path / "missing-target" / "factory" / "production" / "jobs.py"
+    monkeypatch.setattr(jobs_module, "__file__", str(fake_module))
+
+    job_dir = create_job(
+        tmp_path / "workshop",
+        "CREATE",
+        "metadata-agent",
+        NOW,
+        job_id="job-metadata",
+    )
+
+    assert load_job(job_dir)["name"] == "metadata-agent"
+    assert {record.name for record in located} == set(filenames)
+
+
 def test_resume_reprobes_and_replaces_stale_external_state(tmp_path: Path) -> None:
     job_dir = create_job(
         tmp_path,
@@ -715,6 +1078,124 @@ def test_resumed_job_remains_valid_for_transition_and_checkpoint_save(
     assert validate_document("factory-job", persisted) == ()
     assert persisted["status"] == "DISCOVERY"
     assert persisted["external_state"] == {"repository_head": "abc123"}
+
+
+def test_transition_save_load_loop_remains_resumable_through_ready(
+    tmp_path: Path,
+) -> None:
+    from factory.governance.state_machine import transition
+
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "ready-loop-agent",
+        NOW,
+        job_id="job-ready-loop",
+    )
+    job = load_job(job_dir)
+    now = datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc)
+    for target in (
+        "DISCOVERY",
+        "INTERVIEWING",
+        "INTENT_CONFIRMATION",
+        "READY",
+    ):
+        evidence_ref = f"evidence/{target.lower()}.md"
+        job = transition(
+            job,
+            target,
+            f"advance_to_{target.lower()}",
+            [evidence_ref],
+            now,
+        )
+        save_checkpoint(
+            job_dir,
+            job,
+            {"kind": "transition", "ref": evidence_ref},
+        )
+        job = load_job(job_dir)
+
+    job = resume_job(job_dir, lambda _: {"repository_head": "ready123"})
+    job = transition(
+        job,
+        "BLUEPRINTING",
+        "start_blueprint",
+        ["evidence/blueprinting.md"],
+        now,
+    )
+    save_checkpoint(
+        job_dir,
+        job,
+        {"kind": "transition", "ref": "evidence/blueprinting.md"},
+    )
+
+    persisted = load_job(job_dir)
+    assert persisted["status"] == "BLUEPRINTING"
+    assert persisted["checkpoint"]["sequence"] == 5
+    assert persisted["external_state"] == {"repository_head": "ready123"}
+
+
+@pytest.mark.parametrize(
+    "probe_result",
+    [
+        {1: "numeric", "1": "string"},
+        {"nested": {1: "numeric"}},
+    ],
+)
+def test_resume_rejects_non_string_external_state_keys_without_data_loss(
+    tmp_path: Path,
+    probe_result: dict,
+) -> None:
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "strict-key-agent",
+        NOW,
+        job_id="job-strict-key",
+    )
+    before = (job_dir / "status.json").read_bytes()
+
+    with pytest.raises(ContractValidationError, match="string.*key"):
+        resume_job(job_dir, lambda _: probe_result)
+
+    assert (job_dir / "status.json").read_bytes() == before
+
+
+def test_resume_rejects_lone_surrogate_external_state_without_data_loss(
+    tmp_path: Path,
+) -> None:
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "strict-unicode-agent",
+        NOW,
+        job_id="job-strict-unicode",
+    )
+    before = (job_dir / "status.json").read_bytes()
+
+    with pytest.raises(ContractValidationError, match="JSON-compatible|UTF-8"):
+        resume_job(job_dir, lambda _: {"value": "\ud800"})
+
+    assert (job_dir / "status.json").read_bytes() == before
+
+
+def test_resume_preserves_finite_json_external_state(tmp_path: Path) -> None:
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "finite-json-agent",
+        NOW,
+        job_id="job-finite-json",
+    )
+    expected = {
+        "number": 1.25,
+        "nested": {"items": [1, True, None, "text"]},
+    }
+
+    resumed = resume_job(job_dir, lambda _: expected)
+
+    assert resumed["external_state"] == expected
+    assert load_job(job_dir)["external_state"] == expected
 
 
 @pytest.mark.parametrize(
