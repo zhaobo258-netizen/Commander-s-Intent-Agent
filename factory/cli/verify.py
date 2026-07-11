@@ -65,10 +65,20 @@ _REQUIRED_PACKAGES = (
     "factory.production",
 )
 _REQUIRED_PACKAGE_FILES = (
+    "factory/errors.py",
+    "factory/serialization.py",
     "factory/cli/__init__.py",
+    "factory/cli/__main__.py",
+    "factory/cli/main.py",
+    "factory/cli/verify.py",
     "factory/contracts/__init__.py",
+    "factory/contracts/validation.py",
     "factory/governance/__init__.py",
+    "factory/governance/gates.py",
+    "factory/governance/policy.py",
+    "factory/governance/state_machine.py",
     "factory/production/__init__.py",
+    "factory/production/jobs.py",
 )
 
 

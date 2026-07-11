@@ -18,10 +18,20 @@ ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY_FILES = (
     "pyproject.toml",
     "factory/__init__.py",
+    "factory/errors.py",
+    "factory/serialization.py",
     "factory/cli/__init__.py",
+    "factory/cli/__main__.py",
+    "factory/cli/main.py",
+    "factory/cli/verify.py",
     "factory/contracts/__init__.py",
+    "factory/contracts/validation.py",
     "factory/governance/__init__.py",
+    "factory/governance/gates.py",
+    "factory/governance/policy.py",
+    "factory/governance/state_machine.py",
     "factory/production/__init__.py",
+    "factory/production/jobs.py",
     "factory/contracts/commander-intent.schema.json",
     "factory/contracts/agent-blueprint.schema.json",
     "factory/contracts/factory-job.schema.json",
@@ -639,6 +649,16 @@ def test_missing_representative_package_source_fails_verification(
 
     assert report.ok is False
     assert "missing:factory/cli/__init__.py" in report.failures
+
+
+def test_missing_m1_runtime_module_fails_verification(tmp_path: Path) -> None:
+    root = _copy_repository_contract(tmp_path)
+    (root / "factory/cli/main.py").unlink()
+
+    report = verify_repository(root)
+
+    assert report.ok is False
+    assert "missing:factory/cli/main.py" in report.failures
 
 
 def test_nonroot_package_discovery_is_rejected_before_empty_wheel_can_pass(
