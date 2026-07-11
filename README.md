@@ -19,7 +19,7 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
 python -m factory.cli --version
-python -m factory.cli verify-repo .
+python -m factory.cli verify-repo . --public
 ```
 
 直接体验完整 CREATE 流程：

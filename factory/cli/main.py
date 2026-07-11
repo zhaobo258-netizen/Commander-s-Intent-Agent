@@ -51,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     verify_parser = subparsers.add_parser("verify-repo")
     verify_parser.add_argument("root", type=Path)
+    verify_parser.add_argument("--public", action="store_true")
 
     init_parser = subparsers.add_parser("job-init")
     init_parser.add_argument("--workshop", required=True, type=Path)
@@ -108,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
             _emit(f"commander-factory {__version__}", sys.stdout)
             return 0
         if args.command == "verify-repo":
-            report = verify_repository(args.root)
+            report = verify_repository(args.root, public=args.public)
             for item in (*report.checks, *report.failures):
                 _emit(item, sys.stdout)
             return 0 if report.ok else 1

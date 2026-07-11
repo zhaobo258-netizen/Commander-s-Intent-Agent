@@ -6,7 +6,7 @@
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
-python -m factory.cli verify-repo .
+python -m factory.cli verify-repo . --public
 ```
 
 ## 2. CREATE：从目标到 Agent

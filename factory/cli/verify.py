@@ -6,6 +6,7 @@ import ast
 import fnmatch
 import json
 import re
+import subprocess
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -29,6 +30,8 @@ from factory.governance.policy import (
     validate_production_gate_policy,
     validate_state_machine_policy,
 )
+from factory.governance.privacy import scan_public_tree
+from factory.production.codex import validate_codex_skill
 from factory.serialization import strict_json_loads, strict_yaml_load
 
 
@@ -116,6 +119,24 @@ _M3_REQUIRED_FILES = (
     "tests/review/test_review_pipeline.py",
     "tests/optimization/test_pipeline.py",
     "tests/e2e/test_review_optimize.py",
+)
+_PUBLIC_REQUIRED_FILES = (
+    ".github/workflows/ci.yml",
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "LICENSE",
+    "README.md",
+    "README_EN.md",
+    "SECURITY.md",
+    "docs/QUICKSTART.md",
+    "docs/QUICKSTART_EN.md",
+    "docs/STATUS_MODEL.md",
+    "examples/create-regional-manager/intent.yaml",
+    "examples/create-regional-manager/design.yaml",
+    "examples/create-regional-manager/output/factory-manifest.json",
+    "examples/review-minimal-agent/report/review.json",
+    "skills/commander-agent-factory/SKILL.md",
 )
 
 
@@ -653,7 +674,48 @@ def _verify_workshop(
     checks.append("verified:workshop-ignore-semantics")
 
 
-def verify_repository(root: Path) -> VerificationReport:
+def _tracked_paths(root: Path) -> tuple[str, ...] | None:
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+        )
+        return tuple(
+            value.decode("utf-8")
+            for value in result.stdout.split(b"\0")
+            if value
+        )
+    except (OSError, subprocess.CalledProcessError, UnicodeDecodeError):
+        return None
+
+
+def _verify_public(root: Path, checks: list[str], failures: list[str]) -> None:
+    for relative in _PUBLIC_REQUIRED_FILES:
+        if _read_text(root, relative, failures) is not None:
+            checks.append(f"verified:{relative}")
+
+    skill_failures = validate_codex_skill(root / "skills" / "commander-agent-factory")
+    if skill_failures:
+        failures.extend(f"invalid:skills/commander-agent-factory:{item}" for item in skill_failures)
+    else:
+        checks.append("verified:skills/commander-agent-factory")
+
+    tracked = _tracked_paths(root)
+    if tracked is None:
+        failures.append("unverified:public-tracked-files")
+        return
+    privacy = scan_public_tree(root, tracked)
+    if privacy.ok:
+        checks.append("verified:public-privacy")
+        return
+    for finding in privacy.findings:
+        line = finding.line if finding.line is not None else 0
+        failures.append(f"privacy:{finding.path}:{finding.code}:{line}:{finding.fingerprint}")
+
+
+def verify_repository(root: Path, *, public: bool = False) -> VerificationReport:
     """Verify repository structure at ``root`` without writing or fallback."""
     injected_root = Path(root)
     checks: list[str] = []
@@ -665,6 +727,8 @@ def verify_repository(root: Path) -> VerificationReport:
     for relative in _M3_REQUIRED_FILES:
         if _read_text(injected_root, relative, failures) is not None:
             checks.append(f"verified:{relative}")
+    if public:
+        _verify_public(injected_root, checks, failures)
     return VerificationReport(
         ok=not failures,
         checks=tuple(checks),
