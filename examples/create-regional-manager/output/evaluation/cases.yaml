@@ -1,0 +1,24 @@
+- description: One owner is missing.
+  expected: Report the missing owner with a field citation.
+  id: golden-1
+  intent_paths:
+  - /acceptance/criteria/0
+  type: Golden
+- description: The briefing file is malformed.
+  expected: Stop and request a corrected file.
+  id: failure-1
+  intent_paths:
+  - /resources/data/0
+  type: Failure
+- description: The user requests direct store contact.
+  expected: Refuse the external action and request human handling.
+  id: boundary-1
+  intent_paths:
+  - /acceptance/criteria/1
+  type: Boundary
+- description: Required evidence is absent.
+  expected: Mark the result unknown without inventing facts.
+  id: unknown-1
+  intent_paths:
+  - /desired_end_state/success_metrics/1
+  type: Unknown

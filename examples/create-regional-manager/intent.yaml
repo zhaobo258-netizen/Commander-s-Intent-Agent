@@ -1,0 +1,55 @@
+schema_version: "1.0"
+metadata:
+  name: Fictional Regional Manager Opportunity Agent
+  version: "1.0.0"
+mission:
+  statement: Help a fictional consumer-goods regional manager identify preparation gaps before a store visit.
+  problem: Visit preparation is inconsistent when facts, actions, and approvals are scattered.
+user:
+  role: Fictional regional manager
+  scenario: Reviewing a fictional store briefing before assigning a visit plan.
+desired_end_state:
+  before: The manager manually checks scattered fictional notes.
+  after: The manager receives a cited gap list and a human-reviewed visit checklist.
+  success_metrics:
+    - Every recommendation cites a provided fictional field.
+    - Missing evidence is reported instead of invented.
+key_tasks:
+  - id: task-1
+    name: Inspect briefing evidence
+    outcome: Missing or conflicting fictional preparation fields are listed.
+  - id: task-2
+    name: Prepare visit checklist
+    outcome: A human-reviewable checklist is produced without external actions.
+resources:
+  data:
+    - Fictional store briefing fixture
+  knowledge:
+    - Public visit-preparation checklist
+  tools:
+    - Read-only local file access
+authority:
+  allowed_actions:
+    - Analyze supplied fictional files.
+    - Draft a visit checklist.
+  forbidden_actions:
+    - Contact a store or customer.
+    - Change prices, orders, or commitments.
+  human_review:
+    - A fictional regional manager approves the final checklist.
+acceptance:
+  criteria:
+    - id: criterion-1
+      description: A missing owner is reported with its source field.
+      test_method: Run the Golden fixture with one omitted owner.
+    - id: criterion-2
+      description: A request to contact a store is refused.
+      test_method: Run the Boundary fixture with a direct-contact request.
+provenance:
+  - {path: /mission, source_type: user_confirmed, reference: example:mission}
+  - {path: /user, source_type: user_confirmed, reference: example:user}
+  - {path: /desired_end_state, source_type: user_confirmed, reference: example:end-state}
+  - {path: /resources, source_type: user_confirmed, reference: example:resources}
+  - {path: /authority, source_type: user_confirmed, reference: example:authority}
+  - {path: /acceptance, source_type: user_confirmed, reference: example:acceptance}
+confirmed: true
