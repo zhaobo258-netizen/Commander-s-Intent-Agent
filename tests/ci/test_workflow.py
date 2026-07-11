@@ -16,5 +16,7 @@ def test_ci_is_read_only_and_runs_public_gate() -> None:
     commands = "\n".join(
         step.get("run", "") for step in workflow["jobs"]["test"]["steps"]
     )
+    assert "setuptools>=68" in commands
+    assert "wheel" in commands
     assert "python -m pytest" in commands
     assert "python -m factory.cli verify-repo . --public" in commands
