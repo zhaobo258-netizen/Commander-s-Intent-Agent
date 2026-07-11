@@ -27,6 +27,11 @@ class InstallCheck:
     target: Path
 
 
+def _target_identity(target: Path) -> Path:
+    """Canonicalize the parent without following a final managed symlink."""
+    return target.parent.resolve() / target.name
+
+
 def _walk_regular(root: Path, *, exclude_marker: bool = False) -> tuple[Path, ...]:
     paths: list[Path] = []
     for current, directories, filenames in os.walk(root, followlinks=False):
@@ -104,7 +109,7 @@ def _paths(source: Path, codex_home: Path) -> tuple[Path, Path, Path]:
     skills.mkdir(parents=True, exist_ok=True)
     target = skills / _NAME
     try:
-        target.absolute().relative_to(home.resolve())
+        _target_identity(target).relative_to(home.resolve())
     except ValueError as exc:
         raise UnsafePathError("Codex skill target escapes Codex home") from exc
     sidecar = home / ".commander-factory" / "installs" / _NAME / _MARKER
@@ -117,7 +122,7 @@ def _marker(source: Path, target: Path, mode: str, source_hash: str) -> dict:
         "name": _NAME,
         "mode": mode,
         "source": str(source),
-        "target": str(target.absolute()),
+        "target": str(_target_identity(target)),
         "source_hash": source_hash,
         "installed_hash": source_hash,
     }
@@ -201,7 +206,7 @@ def check_codex_skill(source: Path, codex_home: Path) -> InstallCheck:
         marker = _read_marker(marker_path)
     except (OSError, ValueError, UnicodeError):
         return InstallCheck("unmanaged", _tree_hash(source_path), None, target)
-    if marker["source"] != str(source_path) or marker["target"] != str(target.absolute()):
+    if marker["source"] != str(source_path) or marker["target"] != str(_target_identity(target)):
         return InstallCheck("invalid_marker", _tree_hash(source_path), None, target)
 
     source_hash = _tree_hash(source_path)
