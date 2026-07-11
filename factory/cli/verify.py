@@ -691,6 +691,22 @@ def _tracked_paths(root: Path) -> tuple[str, ...] | None:
         return None
 
 
+def _index_matches_worktree(root: Path) -> bool | None:
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--quiet", "--"],
+            cwd=root,
+            check=False,
+        )
+    except OSError:
+        return None
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    return None
+
+
 def _verify_public(root: Path, checks: list[str], failures: list[str]) -> None:
     for relative in _PUBLIC_REQUIRED_FILES:
         if _read_text(root, relative, failures) is not None:
@@ -705,6 +721,14 @@ def _verify_public(root: Path, checks: list[str], failures: list[str]) -> None:
     tracked = _tracked_paths(root)
     if tracked is None:
         failures.append("unverified:public-tracked-files")
+        return
+    index_matches = _index_matches_worktree(root)
+    if index_matches is not True:
+        failures.append(
+            "unverified:public-index-worktree-mismatch"
+            if index_matches is False
+            else "unverified:public-index-worktree-state"
+        )
         return
     privacy = scan_public_tree(root, tracked)
     if privacy.ok:

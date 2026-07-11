@@ -43,3 +43,13 @@ def test_documented_factory_commands_exist() -> None:
         documented.update(command_pattern.findall(document.read_text(encoding="utf-8")))
     assert documented <= supported
     assert {"generate", "review", "optimize-prepare", "verify-repo"} <= documented
+
+
+def test_documented_job_paths_match_factory_layout() -> None:
+    for document in DOCS[:4]:
+        text = document.read_text(encoding="utf-8")
+        assert "workshop/jobs/create-001-my-agent" in text
+    for document in DOCS[:4]:
+        text = document.read_text(encoding="utf-8")
+        if "optimize-prepare" in text:
+            assert "workshop/reviews/optimize-001-existing-agent" in text

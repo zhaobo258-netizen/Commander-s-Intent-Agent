@@ -14,10 +14,18 @@
 
 ## 验证
 
-- 里程碑完整测试：`413 passed in 10.78s`。
+- 集中审核整改后的完整测试：`417 passed in 10.86s`。
 - 公共仓库验证：`python -m factory.cli verify-repo . --public` 返回 `46` 项 `verified`，无失败。
 - 隐私门禁：`python scripts/verify_public.py` 返回 `ok: true` 且 findings 为空。
 - 完整测试后只进行一次未参与实现的 AI 集中审核；发现的问题一次性整改。
+
+## 集中审核整改
+
+- 修正文档中的 CREATE 与 OPTIMIZE 任务目录，并为 OPTIMIZE 使用独立的正确模式任务。
+- NUL/二进制混合内容不再跳过密钥特征扫描。
+- Git 索引与工作树不一致时公共门禁失败，避免扫描内容与待提交内容不一致。
+
+非阻断技术债：GitHub Actions 当前使用官方主版本标签而不是不可变提交 SHA，后续发布加固时再固定。
 
 ## 当前真实状态
 

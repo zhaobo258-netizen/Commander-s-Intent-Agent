@@ -84,8 +84,6 @@ def scan_public_tree(
         except (OSError, RuntimeError, ValueError):
             findings.append(PrivacyFinding(normalized, "unreadable", None, _fingerprint(normalized.encode("utf-8"))))
             continue
-        if b"\x00" in payload:
-            continue
         for pattern in _SECRET_PATTERNS:
             for match in pattern.finditer(payload):
                 findings.append(PrivacyFinding(normalized, "secret_pattern", _line_number(payload, match.start()), _fingerprint(match.group(0))))

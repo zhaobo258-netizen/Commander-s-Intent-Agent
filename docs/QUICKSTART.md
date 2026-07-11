@@ -17,8 +17,8 @@ python -m factory.cli verify-repo . --public
 python -m factory.cli job-init --workshop workshop --mode CREATE --name my-agent --job-id create-001
 python -m factory.cli next-question examples/create-regional-manager/intent.yaml
 python -m factory.cli validate-intent examples/create-regional-manager/intent.yaml
-python -m factory.cli generate --job-dir workshop/create-001 --intent examples/create-regional-manager/intent.yaml --design examples/create-regional-manager/design.yaml --template-root templates/agent
-python -m factory.cli job-status workshop/create-001
+python -m factory.cli generate --job-dir workshop/jobs/create-001-my-agent --intent examples/create-regional-manager/intent.yaml --design examples/create-regional-manager/design.yaml --template-root templates/agent
+python -m factory.cli job-status workshop/jobs/create-001-my-agent
 ```
 
 如果意图不完整，继续修改 YAML 并再次运行 `next-question`。生成可安全重跑；已有一致结果不会被悄悄替换。
@@ -38,9 +38,10 @@ python -m factory.cli review path/to/agent --workshop workshop --job-id review-0
 先根据审查报告准备优化计划。没有 `--approve` 时门禁会阻止创建候选；批准后也只得到副本。
 
 ```bash
-python -m factory.cli optimize-prepare workshop/review-001 path/to/plan.yaml workshop/candidate --approve
+python -m factory.cli job-init --workshop workshop --mode OPTIMIZE --name existing-agent --job-id optimize-001
+python -m factory.cli optimize-prepare workshop/reviews/optimize-001-existing-agent path/to/plan.yaml workshop/candidate --approve
 python -m factory.cli optimize-diff path/to/agent workshop/candidate
-python -m factory.cli optimize-finalize workshop/review-001
+python -m factory.cli optimize-finalize workshop/reviews/optimize-001-existing-agent
 ```
 
 `optimize-finalize` 只有在候选、差异和验证凭据仍匹配时才返回可交付候选。是否替换、安装、部署或发布仍由人决定。

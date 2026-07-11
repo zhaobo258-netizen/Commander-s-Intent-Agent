@@ -18,3 +18,14 @@ def test_private_path_and_fake_secret_are_redacted(tmp_path: Path) -> None:
 def test_clean_public_document_passes(tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text("Use environment variables for credentials.", encoding="utf-8")
     assert scan_public_tree(tmp_path, ["README.md"]).ok is True
+
+
+def test_nul_bytes_do_not_bypass_secret_scanning(tmp_path: Path) -> None:
+    fake = b"gh" + b"p_" + b"A" * 24
+    (tmp_path / "mixed.bin").write_bytes(b"\x00" + fake)
+
+    report = scan_public_tree(tmp_path, ["mixed.bin"])
+
+    assert report.ok is False
+    assert {finding.code for finding in report.findings} == {"secret_pattern"}
+    assert fake.decode("ascii") not in report.to_json()

@@ -14,7 +14,7 @@ from factory.governance.privacy import scan_public_tree
 
 
 def main() -> int:
-    repository = verify_repository(ROOT)
+    repository = verify_repository(ROOT, public=True)
     tracked = subprocess.run(
         ["git", "ls-files", "-z"],
         cwd=ROOT,

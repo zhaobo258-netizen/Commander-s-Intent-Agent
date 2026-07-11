@@ -31,8 +31,8 @@ The generated CREATE package is under `examples/create-regional-manager/output/`
 python -m factory.cli job-init --workshop workshop --mode CREATE --name my-agent --job-id create-001
 python -m factory.cli next-question examples/create-regional-manager/intent.yaml
 python -m factory.cli validate-intent examples/create-regional-manager/intent.yaml
-python -m factory.cli generate --job-dir workshop/create-001 --intent examples/create-regional-manager/intent.yaml --design examples/create-regional-manager/design.yaml --template-root templates/agent
-python -m factory.cli job-status workshop/create-001
+python -m factory.cli generate --job-dir workshop/jobs/create-001-my-agent --intent examples/create-regional-manager/intent.yaml --design examples/create-regional-manager/design.yaml --template-root templates/agent
+python -m factory.cli job-status workshop/jobs/create-001-my-agent
 ```
 
 Missing information blocks production instead of being guessed. See the [English quickstart](docs/QUICKSTART_EN.md) for REVIEW and OPTIMIZE.
