@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 import stat
 from datetime import datetime, timezone
@@ -203,6 +204,42 @@ def test_load_job_wraps_missing_malformed_and_invalid_status_errors(
         (job_dir / "status.json").write_text(contents, encoding="utf-8")
 
     with pytest.raises(ContractValidationError, match=message):
+        load_job(job_dir)
+
+
+def test_load_job_rejects_invalid_utf8_as_malformed_status(tmp_path: Path) -> None:
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    (job_dir / "status.json").write_bytes(b'{"schema_version":"1.0","bad":"\xff"}')
+
+    with pytest.raises(
+        ContractValidationError,
+        match="malformed status.*invalid UTF-8",
+    ):
+        load_job(job_dir)
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_load_job_rejects_non_standard_json_constants(
+    tmp_path: Path,
+    constant: str,
+) -> None:
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "strict-json-agent",
+        NOW,
+        job_id="job-strict-json",
+    )
+    document = load_job(job_dir)
+    document["external_state"] = {"measurement": "REPLACE_WITH_CONSTANT"}
+    payload = json.dumps(document).replace('"REPLACE_WITH_CONSTANT"', constant)
+    (job_dir / "status.json").write_text(payload, encoding="utf-8")
+
+    with pytest.raises(
+        ContractValidationError,
+        match=rf"malformed status.*{constant}",
+    ):
         load_job(job_dir)
 
 
@@ -579,6 +616,47 @@ def test_template_loader_supports_installed_resources_outside_checkout(
 
     assert (job_dir / "JOB.md").is_file()
     assert load_job(job_dir)["name"] == "portable-agent"
+
+
+def test_template_loader_supports_pip_target_wheel_layout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target_root = tmp_path / "target-site"
+    fake_module = target_root / "factory" / "production" / "jobs.py"
+    fake_module.parent.mkdir(parents=True)
+    fake_module.touch()
+    target_templates = (
+        target_root
+        / "share"
+        / "commander-intent-agent-factory"
+        / "templates"
+        / "job"
+    )
+    target_templates.mkdir(parents=True)
+    source_templates = Path(__file__).parents[2] / "templates" / "job"
+    for filename in ("JOB.md.tmpl", "COMMANDER_INTENT.md.tmpl"):
+        (target_templates / filename).write_bytes(
+            (source_templates / filename).read_bytes()
+        )
+    monkeypatch.setattr(jobs_module, "__file__", str(fake_module))
+    monkeypatch.setattr(jobs_module, "_TEMPLATE_ROOT", tmp_path / "missing-checkout")
+    monkeypatch.setattr(
+        jobs_module,
+        "_INSTALLED_TEMPLATE_ROOT",
+        tmp_path / "missing-prefix",
+    )
+
+    job_dir = create_job(
+        tmp_path / "workshop",
+        "CREATE",
+        "target-agent",
+        NOW,
+        job_id="job-target",
+    )
+
+    assert (job_dir / "JOB.md").is_file()
+    assert load_job(job_dir)["name"] == "target-agent"
 
 
 def test_resume_reprobes_and_replaces_stale_external_state(tmp_path: Path) -> None:

@@ -32,6 +32,17 @@ _INSTALLED_TEMPLATE_ROOT = (
 )
 
 
+def _target_template_root() -> Path:
+    """Return wheel data beside a package installed with ``pip --target``."""
+    return (
+        Path(__file__).resolve().parents[2]
+        / "share"
+        / "commander-intent-agent-factory"
+        / "templates"
+        / "job"
+    )
+
+
 def _contract_error(
     context: str,
     issues: Sequence[ValidationIssue],
@@ -121,6 +132,7 @@ def _safe_job_path(
 def _render_template(filename: str, values: Mapping[str, str]) -> str:
     candidates = (
         _TEMPLATE_ROOT / filename,
+        _target_template_root() / filename,
         _INSTALLED_TEMPLATE_ROOT / filename,
     )
     for template_path in candidates:
@@ -289,16 +301,24 @@ def load_job(job_dir: Path) -> dict:
         raw_status = status_path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise ContractValidationError(f"missing status for factory job: {status_path}") from exc
+    except UnicodeDecodeError as exc:
+        raise ContractValidationError(
+            f"malformed status for factory job {status_path}: invalid UTF-8"
+        ) from exc
     except OSError as exc:
         raise ContractValidationError(
             f"could not read factory-job status {status_path}: {exc}"
         ) from exc
 
+    def reject_constant(constant: str) -> None:
+        raise ValueError(f"non-standard JSON constant: {constant}")
+
     try:
-        loaded = json.loads(raw_status)
-    except json.JSONDecodeError as exc:
+        loaded = json.loads(raw_status, parse_constant=reject_constant)
+    except (json.JSONDecodeError, ValueError) as exc:
+        detail = exc.msg if isinstance(exc, json.JSONDecodeError) else str(exc)
         raise ContractValidationError(
-            f"malformed status for factory job {status_path}: {exc.msg}"
+            f"malformed status for factory job {status_path}: {detail}"
         ) from exc
     _validate_job(loaded, str(status_path))
     return deepcopy(dict(loaded))
