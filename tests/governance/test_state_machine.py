@@ -43,11 +43,13 @@ def _job_at(
     job = copy.deepcopy(new_job)
     job["mode"] = mode
     job["status"] = state
+    job["updated_at"] = "2026-07-11T09:00:00+00:00"
     job["checkpoint"].update(
         {
             "sequence": 1,
             "state": state,
             "next_action": f"continue:{state}",
+            "updated_at": "2026-07-11T09:00:00+00:00",
             "evidence_ref": "evidence/prior.txt",
         }
     )
@@ -947,8 +949,8 @@ def test_transition_now_cannot_precede_latest_transition(new_job: dict) -> None:
     state_machine = _state_machine_module()
     job = _job_at(new_job, "DISCOVERY")
     job["created_at"] = "2026-07-11T08:00:00+00:00"
-    job["updated_at"] = "2026-07-11T09:00:00+00:00"
-    job["checkpoint"]["updated_at"] = "2026-07-11T09:00:00+00:00"
+    job["updated_at"] = "2026-07-11T10:00:00+00:00"
+    job["checkpoint"]["updated_at"] = "2026-07-11T10:00:00+00:00"
     job["transitions"][-1]["at"] = "2026-07-11T10:00:00+00:00"
 
     with pytest.raises(TransitionError, match="latest transition.at"):
@@ -982,6 +984,214 @@ def test_audit_times_compare_mixed_offsets_by_instant(new_job: dict) -> None:
                 tzinfo=timezone(timedelta(hours=8)),
             ),
         )
+
+
+def test_lowercase_z_persisted_audit_fields_compare_by_instant(
+    new_job: dict,
+) -> None:
+    state_machine = _state_machine_module()
+    audit_time = "2026-07-11T02:00:00z"
+    new_job["created_at"] = audit_time
+    new_job["updated_at"] = audit_time
+    new_job["checkpoint"]["updated_at"] = audit_time
+
+    transitioned = state_machine.transition(
+        new_job,
+        "DISCOVERY",
+        "scope_received",
+        ["evidence/scope.md"],
+        datetime(
+            2026,
+            7,
+            11,
+            10,
+            0,
+            tzinfo=timezone(timedelta(hours=8)),
+        ),
+    )
+
+    assert transitioned["status"] == "DISCOVERY"
+
+
+def test_lowercase_z_transition_history_is_accepted(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+    job = _job_at(new_job, "DISCOVERY")
+    job["created_at"] = "2026-07-11T01:00:00z"
+    job["updated_at"] = "2026-07-11T02:00:00z"
+    job["checkpoint"]["updated_at"] = "2026-07-11T02:00:00z"
+    job["transitions"][-1]["at"] = "2026-07-11T02:00:00z"
+
+    transitioned = state_machine.transition(
+        job,
+        "INTERVIEWING",
+        "continue",
+        ["evidence/continue.md"],
+        datetime(2026, 7, 11, 2, 0, tzinfo=timezone.utc),
+    )
+
+    assert transitioned["status"] == "INTERVIEWING"
+
+
+def test_unexpected_audit_parse_failure_is_transition_error() -> None:
+    state_machine = _state_machine_module()
+
+    with pytest.raises(TransitionError, match="created_at"):
+        state_machine._audit_datetime("not-a-date", "created_at")
+
+
+def test_audit_timeline_rejects_created_after_updated(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+    new_job["created_at"] = "2026-07-11T10:00:00+08:00"
+    new_job["updated_at"] = "2026-07-11T01:00:00+00:00"
+    new_job["checkpoint"]["updated_at"] = "2026-07-11T03:00:00+00:00"
+
+    with pytest.raises(TransitionError, match="created_at.*updated_at"):
+        state_machine.transition(
+            new_job,
+            "DISCOVERY",
+            "scope_received",
+            ["evidence/scope.md"],
+            datetime(2026, 7, 11, 4, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_audit_timeline_rejects_created_after_checkpoint(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+    new_job["created_at"] = "2026-07-11T10:00:00+08:00"
+    new_job["updated_at"] = "2026-07-11T03:00:00+00:00"
+    new_job["checkpoint"]["updated_at"] = "2026-07-11T01:00:00+00:00"
+
+    with pytest.raises(
+        TransitionError,
+        match="created_at.*checkpoint.updated_at",
+    ):
+        state_machine.transition(
+            new_job,
+            "DISCOVERY",
+            "scope_received",
+            ["evidence/scope.md"],
+            datetime(2026, 7, 11, 4, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_audit_timeline_rejects_first_transition_before_created(
+    new_job: dict,
+) -> None:
+    state_machine = _state_machine_module()
+    job = _job_at(new_job, "DISCOVERY")
+    job["created_at"] = "2026-07-11T10:00:00+08:00"
+    job["updated_at"] = "2026-07-11T03:00:00+00:00"
+    job["checkpoint"]["updated_at"] = "2026-07-11T03:00:00+00:00"
+    job["transitions"][-1]["at"] = "2026-07-11T01:00:00+00:00"
+
+    with pytest.raises(
+        TransitionError,
+        match="created_at.*first transition.at",
+    ):
+        state_machine.transition(
+            job,
+            "INTERVIEWING",
+            "continue",
+            ["evidence/continue.md"],
+            datetime(2026, 7, 11, 4, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_audit_timeline_rejects_latest_transition_after_updated(
+    new_job: dict,
+) -> None:
+    state_machine = _state_machine_module()
+    job = _job_at(new_job, "DISCOVERY")
+    job["created_at"] = "2026-07-11T01:00:00+00:00"
+    job["updated_at"] = "2026-07-11T10:00:00+08:00"
+    job["checkpoint"]["updated_at"] = "2026-07-11T04:00:00+00:00"
+    job["transitions"][-1]["at"] = "2026-07-11T03:00:00+00:00"
+
+    with pytest.raises(
+        TransitionError,
+        match="latest transition.at.*updated_at",
+    ):
+        state_machine.transition(
+            job,
+            "INTERVIEWING",
+            "continue",
+            ["evidence/continue.md"],
+            datetime(2026, 7, 11, 5, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_audit_timeline_rejects_latest_transition_after_checkpoint(
+    new_job: dict,
+) -> None:
+    state_machine = _state_machine_module()
+    job = _job_at(new_job, "DISCOVERY")
+    job["created_at"] = "2026-07-11T01:00:00+00:00"
+    job["updated_at"] = "2026-07-11T04:00:00+00:00"
+    job["checkpoint"]["updated_at"] = "2026-07-11T10:00:00+08:00"
+    job["transitions"][-1]["at"] = "2026-07-11T03:00:00+00:00"
+
+    with pytest.raises(
+        TransitionError,
+        match="latest transition.at.*checkpoint.updated_at",
+    ):
+        state_machine.transition(
+            job,
+            "INTERVIEWING",
+            "continue",
+            ["evidence/continue.md"],
+            datetime(2026, 7, 11, 5, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_equal_audit_instants_with_mixed_offsets_are_allowed(
+    new_job: dict,
+) -> None:
+    state_machine = _state_machine_module()
+    job = _job_at(new_job, "DISCOVERY")
+    job["created_at"] = "2026-07-11T10:00:00+08:00"
+    job["updated_at"] = "2026-07-11T02:00:00+00:00"
+    job["checkpoint"]["updated_at"] = "2026-07-11T11:00:00+09:00"
+    job["transitions"][-1]["at"] = "2026-07-11T02:00:00z"
+
+    transitioned = state_machine.transition(
+        job,
+        "INTERVIEWING",
+        "continue",
+        ["evidence/continue.md"],
+        datetime(2026, 7, 11, 2, 0, tzinfo=timezone.utc),
+    )
+
+    assert transitioned["status"] == "INTERVIEWING"
+
+
+@pytest.mark.parametrize(
+    ("updated_at", "checkpoint_updated_at"),
+    [
+        ("2026-07-11T03:00:00+00:00", "2026-07-11T04:00:00+00:00"),
+        ("2026-07-11T04:00:00+00:00", "2026-07-11T03:00:00+00:00"),
+    ],
+)
+def test_updated_and_checkpoint_times_need_no_relative_order(
+    new_job: dict,
+    updated_at: str,
+    checkpoint_updated_at: str,
+) -> None:
+    state_machine = _state_machine_module()
+    job = _job_at(new_job, "DISCOVERY")
+    job["created_at"] = "2026-07-11T01:00:00+00:00"
+    job["updated_at"] = updated_at
+    job["checkpoint"]["updated_at"] = checkpoint_updated_at
+    job["transitions"][-1]["at"] = "2026-07-11T02:00:00+00:00"
+
+    transitioned = state_machine.transition(
+        job,
+        "INTERVIEWING",
+        "continue",
+        ["evidence/continue.md"],
+        datetime(2026, 7, 11, 5, 0, tzinfo=timezone.utc),
+    )
+
+    assert transitioned["status"] == "INTERVIEWING"
 
 
 def test_mixed_offset_now_later_by_instant_is_allowed(new_job: dict) -> None:

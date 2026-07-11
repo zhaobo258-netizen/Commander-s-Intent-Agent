@@ -72,24 +72,81 @@ def _validated_evidence(evidence: object) -> list[str]:
     return list(evidence)
 
 
-def _audit_datetime(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+def _audit_datetime(value: str, context: str) -> datetime:
+    try:
+        normalized = (
+            f"{value[:-1]}+00:00"
+            if value[-1:].lower() == "z"
+            else value
+        )
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError("timezone offset is required")
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise TransitionError(
+            f"invalid audit timestamp at {context}: {value!r}"
+        ) from exc
+    return parsed
 
 
 def _validate_now(job: Mapping, now: datetime) -> None:
-    audit_times = [
-        ("created_at", job["created_at"]),
-        ("updated_at", job["updated_at"]),
-        ("checkpoint.updated_at", job["checkpoint"]["updated_at"]),
-    ]
+    audit_times = []
     if job["transitions"]:
         audit_times.append(
             ("latest transition.at", job["transitions"][-1]["at"])
         )
+    audit_times.extend(
+        [
+            ("created_at", job["created_at"]),
+            ("updated_at", job["updated_at"]),
+            ("checkpoint.updated_at", job["checkpoint"]["updated_at"]),
+        ]
+    )
 
     for label, value in audit_times:
-        if now < _audit_datetime(value):
+        if now < _audit_datetime(value, label):
             raise TransitionError(f"transition now precedes {label}")
+
+
+def _validate_audit_timeline(job: Mapping) -> None:
+    created_at = _audit_datetime(job["created_at"], "created_at")
+    updated_at = _audit_datetime(job["updated_at"], "updated_at")
+    checkpoint_at = _audit_datetime(
+        job["checkpoint"]["updated_at"],
+        "checkpoint.updated_at",
+    )
+
+    if created_at > updated_at:
+        raise TransitionError("audit timeline has created_at after updated_at")
+    if created_at > checkpoint_at:
+        raise TransitionError(
+            "audit timeline has created_at after checkpoint.updated_at"
+        )
+
+    history = job["transitions"]
+    if not history:
+        return
+
+    first_transition_at = _audit_datetime(
+        history[0]["at"],
+        "first transition.at",
+    )
+    latest_transition_at = _audit_datetime(
+        history[-1]["at"],
+        "latest transition.at",
+    )
+    if created_at > first_transition_at:
+        raise TransitionError(
+            "audit timeline has created_at after first transition.at"
+        )
+    if latest_transition_at > updated_at:
+        raise TransitionError(
+            "audit timeline has latest transition.at after updated_at"
+        )
+    if latest_transition_at > checkpoint_at:
+        raise TransitionError(
+            "audit timeline has latest transition.at after checkpoint.updated_at"
+        )
 
 
 def _checkpoint_next_action(mode: str, current: str, target: str) -> str:
@@ -139,10 +196,13 @@ def _validate_transition_history(
     resume_state: str | None = None
     previous_target: str | None = None
     previous_at: datetime | None = None
-    for record in history:
+    for index, record in enumerate(history):
         source = record["from"]
         target = record["to"]
-        record_at = _audit_datetime(record["at"])
+        record_at = _audit_datetime(
+            record["at"],
+            f"transitions[{index}].at",
+        )
         if previous_at is not None and record_at < previous_at:
             raise TransitionError(
                 "transition history timestamps must be nondecreasing"
@@ -219,6 +279,7 @@ def transition(
         current,
         checkpoint_state,
     )
+    _validate_audit_timeline(job)
     _validate_now(job, now)
 
     if current == "BLOCKED":
