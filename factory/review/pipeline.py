@@ -9,6 +9,18 @@ from factory.production import load_job, save_checkpoint
 from factory.review.evaluator import review_agent
 from factory.review.report import WrittenReview, write_review_report
 from factory.review.snapshot import snapshot_tree, verify_unchanged
+from factory.errors import UnsafePathError
+
+
+def _require_separate_job_and_target(job_dir: Path, target: Path) -> None:
+    job_real = Path(job_dir).resolve(strict=True)
+    target_real = Path(target).resolve(strict=True)
+    if (
+        job_real == target_real
+        or job_real.is_relative_to(target_real)
+        or target_real.is_relative_to(job_real)
+    ):
+        raise UnsafePathError("review job and target must be separate trees")
 
 
 def _advance(job_dir: Path, job: dict, target: str, evidence: list[str]) -> dict:
@@ -22,6 +34,7 @@ def _advance(job_dir: Path, job: dict, target: str, evidence: list[str]) -> dict
 
 
 def run_review(job_dir: Path, target: Path) -> WrittenReview:
+    _require_separate_job_and_target(job_dir, target)
     job = load_job(job_dir)
     if job["mode"] != "REVIEW":
         raise GateBlockedError("review pipeline requires a REVIEW job")

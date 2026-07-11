@@ -93,3 +93,23 @@ def test_failed_validator_blocks_job(tmp_path: Path) -> None:
     result = finalize_optimization(job_dir, manifest, validator=lambda _: ["schema failure"])
     assert result.ready is False
     assert result.job["status"] == "BLOCKED"
+
+
+def test_validator_cannot_mutate_candidate_then_claim_success(tmp_path: Path) -> None:
+    source, baseline, plan, job_dir = _setup(tmp_path)
+    from factory.cli.optimize import optimize_prepare_payload
+    prepared = optimize_prepare_payload(job_dir, plan, tmp_path / "out", True)
+    data = json.loads(Path(prepared["manifest_path"]).read_text(encoding="utf-8"))
+    manifest = CandidateManifest(Path(data["source_path"]), data["source_hash"], Path(data["candidate_path"]), data["plan_hash"])
+    (manifest.candidate_path / "README.md").write_text("changed\n", encoding="utf-8")
+
+    def mutating_validator(candidate: Path) -> list[str]:
+        (candidate / "AGENT_SPEC.yaml").unlink()
+        return []
+
+    result = finalize_optimization(job_dir, manifest, validator=mutating_validator)
+
+    assert result.ready is False
+    assert result.job["status"] == "BLOCKED"
+    assert result.job["status_layers"]["local_validated"] is False
+    assert "candidate changed during validation" in result.validation_errors

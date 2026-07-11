@@ -11,6 +11,7 @@ from factory.production import create_job, load_job
 from factory.review.evaluator import review_agent
 from factory.review.pipeline import run_review
 from factory.review.snapshot import snapshot_tree, verify_unchanged
+from factory.errors import UnsafePathError
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -57,3 +58,18 @@ def test_review_pipeline_and_cli_never_modify_target(tmp_path: Path, capsys) -> 
     payload = json.loads(capsys.readouterr().out)
     assert Path(payload["json_report"]).is_file()
     assert verify_unchanged(snapshot_tree(cli_target), snapshot_tree(cli_target))
+
+
+def test_cli_rejects_workshop_inside_target_before_writing(tmp_path: Path, capsys) -> None:
+    target = tmp_path / "target"
+    shutil.copytree(ROOT / "tests/fixtures/review/standard-agent", target)
+    before = snapshot_tree(target)
+
+    assert main([
+        "review", str(target), "--workshop", str(target / "workshop"),
+        "--job-id", "overlap", "--name", "overlap",
+    ]) == 1
+
+    assert "separate trees" in capsys.readouterr().err
+    assert snapshot_tree(target).tree_hash == before.tree_hash
+    assert not (target / "workshop").exists()
