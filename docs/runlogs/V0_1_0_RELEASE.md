@@ -35,8 +35,8 @@ local_validated: true
 installed: false
 published: false
 real_usage_verified: false
-github_pushed: false
+github_pushed: true
 customer_deliverable: false
 ```
 
-`local_validated=true` 只表示本地合成示例和测试通过。当前没有声明已全局安装；没有把分支合并到 GitHub 主分支或发布正式版本；没有客户交付证据，也没有真实业务使用证据。
+`local_validated=true` 只表示本地合成示例和测试通过。候选已推送到 `codex/commander-agent-factory-v0.1` 并创建草稿 PR #1，但没有合并到 GitHub 主分支或发布正式版本。当前没有声明已全局安装；没有客户交付证据，也没有真实业务使用证据。
