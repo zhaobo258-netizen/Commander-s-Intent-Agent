@@ -36,13 +36,70 @@ def _setup(tmp_path: Path):
     return source, baseline, plan_path, job_dir
 
 
+def _job_tree(job_dir: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(job_dir).as_posix(): path.read_bytes()
+        for path in sorted(Path(job_dir).rglob("*"))
+        if path.is_file()
+    }
+
+
 def test_unapproved_cli_stops_before_candidate(tmp_path: Path, capsys) -> None:
     source, baseline, plan, job_dir = _setup(tmp_path)
     output = tmp_path / "candidates"
     assert main(["optimize-prepare", str(job_dir), str(plan), str(output)]) == 2
     assert not output.exists()
-    assert load_job(job_dir)["status"] == "OPTIMIZATION_PROPOSED"
+    assert load_job(job_dir)["status"] == "NEW"
     capsys.readouterr()
+
+
+def test_unapproved_prepare_leaves_job_state_and_files_untouched(tmp_path: Path) -> None:
+    source, baseline, plan_path, job_dir = _setup(tmp_path)
+    from factory.cli.optimize import optimize_prepare_payload
+    from factory.errors import GateBlockedError
+
+    job_before = load_job(job_dir)
+    tree_before = _job_tree(job_dir)
+    output = tmp_path / "candidates"
+
+    try:
+        optimize_prepare_payload(job_dir, plan_path, output, False)
+    except GateBlockedError:
+        pass
+    else:
+        raise AssertionError("unapproved optimization must be gate-blocked")
+
+    job_after = load_job(job_dir)
+    assert job_after["status"] == job_before["status"] == "NEW"
+    assert job_after["transitions"] == job_before["transitions"]
+    assert job_after["approvals"] == job_before["approvals"]
+    assert _job_tree(job_dir) == tree_before
+    assert not output.exists()
+
+
+def test_plan_without_user_approval_is_blocked_even_with_approve_flag(tmp_path: Path) -> None:
+    import yaml as _yaml
+
+    source, baseline, plan_path, job_dir = _setup(tmp_path)
+    from factory.cli.optimize import optimize_prepare_payload
+    from factory.errors import GateBlockedError
+
+    plan = _yaml.safe_load(plan_path.read_text(encoding="utf-8"))
+    plan["approved_by_user"] = False
+    plan_path.write_text(_yaml.safe_dump(plan, sort_keys=False), encoding="utf-8")
+    tree_before = _job_tree(job_dir)
+    output = tmp_path / "candidates"
+
+    try:
+        optimize_prepare_payload(job_dir, plan_path, output, True)
+    except GateBlockedError:
+        pass
+    else:
+        raise AssertionError("plan without approved_by_user must be gate-blocked")
+
+    assert load_job(job_dir)["status"] == "NEW"
+    assert _job_tree(job_dir) == tree_before
+    assert not output.exists()
 
 
 def test_output_inside_source_is_rejected_without_source_mutation(tmp_path: Path) -> None:

@@ -118,19 +118,24 @@ def _paths(source: Path, codex_home: Path) -> tuple[Path, Path, Path]:
     if home.is_symlink():
         raise UnsafePathError("Codex home must not be a symlink")
     home.mkdir(parents=True, exist_ok=True)
+    # Canonicalize once so home, target, and sidecar share the same
+    # resolve rule before any relative_to boundary check. Symlinked
+    # ancestors of Codex home (for example macOS /tmp -> /private/tmp)
+    # are legitimate; symlinks below Codex home are still rejected.
+    home = home.resolve(strict=True)
     skills = home / "skills"
     if skills.is_symlink():
         raise UnsafePathError("Codex skills directory must not be a symlink")
     skills.mkdir(parents=True, exist_ok=True)
     target = skills / _NAME
     try:
-        _target_identity(target).relative_to(home.resolve())
+        _target_identity(target).relative_to(home)
     except ValueError as exc:
         raise UnsafePathError("Codex skill target escapes Codex home") from exc
     sidecar = home / ".commander-factory" / "installs" / _NAME / _MARKER
-    _reject_unsafe_directory_chain(home.resolve(), sidecar.parent)
+    _reject_unsafe_directory_chain(home, sidecar.parent)
     try:
-        (sidecar.parent.resolve(strict=False) / sidecar.name).relative_to(home.resolve())
+        (sidecar.parent.resolve(strict=False) / sidecar.name).relative_to(home)
     except ValueError as exc:
         raise UnsafePathError("Codex install marker escapes Codex home") from exc
     return source_path, target, sidecar

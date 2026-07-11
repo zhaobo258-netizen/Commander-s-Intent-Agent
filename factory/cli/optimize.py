@@ -37,9 +37,12 @@ def optimize_prepare_payload(job_dir: Path, plan_path: Path, output: Path, appro
     job = load_job(job_dir)
     if job["mode"] != "OPTIMIZE":
         raise GateBlockedError("optimize-prepare requires an OPTIMIZE job")
-    job = _to_proposed(job_dir, job, str(plan_path))
+    # Approval is validated before any state transition, checkpoint, or
+    # candidate directory is created, so a blocked request leaves the job
+    # exactly as it was.
     if not approve or not plan.get("approved_by_user"):
         raise GateBlockedError("optimization requires explicit --approve and approved plan")
+    job = _to_proposed(job_dir, job, str(plan_path))
     if job["status"] == "OPTIMIZATION_PROPOSED":
         timestamp = datetime.now(timezone.utc).isoformat()
         job["approvals"].append({"id": "optimization-approval", "status": "approved", "requested_at": timestamp, "resolved_at": timestamp, "ref": str(plan_path)})

@@ -108,3 +108,55 @@ def test_symlinked_sidecar_ancestor_cannot_escape_codex_home(
 
 def test_project_skill_validates() -> None:
     assert validate_codex_skill(ROOT / "skills" / "commander-agent-factory") == ()
+
+
+def test_codex_home_under_symlinked_ancestor_supports_full_lifecycle(
+    tmp_path: Path,
+    skill_fixture: Path,
+) -> None:
+    """Mirror macOS /tmp: an ancestor of codex_home is a symlink."""
+    real = tmp_path / "real"
+    real.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(real, target_is_directory=True)
+    codex_home = alias / "codex-home"
+
+    installed = install_codex_skill(skill_fixture, codex_home, mode="copy")
+    assert installed.is_dir()
+    assert check_codex_skill(skill_fixture, codex_home).status == "current"
+
+    uninstall_codex_skill(skill_fixture, codex_home)
+    assert check_codex_skill(skill_fixture, codex_home).status == "not_installed"
+
+
+def test_codex_home_under_real_tmp_symlink_on_macos(skill_fixture: Path) -> None:
+    """On macOS /tmp is a symlink to /private/tmp; the install must work."""
+    import sys
+    import tempfile
+
+    if not Path("/tmp").is_symlink():
+        pytest.skip("requires a platform where /tmp is a symlink (macOS)")
+    assert sys.platform == "darwin"
+    with tempfile.TemporaryDirectory(dir="/tmp") as temporary:
+        codex_home = Path(temporary) / "codex-home"
+        install_codex_skill(skill_fixture, codex_home, mode="copy")
+        assert check_codex_skill(skill_fixture, codex_home).status == "current"
+        uninstall_codex_skill(skill_fixture, codex_home)
+        assert check_codex_skill(skill_fixture, codex_home).status == "not_installed"
+
+
+def test_symlink_mode_lifecycle_under_symlinked_ancestor(
+    tmp_path: Path,
+    skill_fixture: Path,
+) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(real, target_is_directory=True)
+    codex_home = alias / "codex-home"
+
+    installed = install_codex_skill(skill_fixture, codex_home, mode="symlink")
+    assert installed.is_symlink()
+    assert check_codex_skill(skill_fixture, codex_home).status == "current"
+    uninstall_codex_skill(skill_fixture, codex_home)
+    assert check_codex_skill(skill_fixture, codex_home).status == "not_installed"

@@ -28,7 +28,7 @@ python -m factory.cli verify-repo . --public
 python scripts/build_examples.py
 ```
 
-生成结果在 `examples/create-regional-manager/output/`，只读审查报告在 `examples/review-minimal-agent/report/`。
+生成结果在 `examples/create-regional-manager/output/`，只读审查报告在 `examples/review-minimal-agent/report/`。示例报告中的时间戳是合成时间，仅用于可复现性，不代表真实运行时刻。
 
 ## 创建一个 Agent
 
@@ -69,7 +69,7 @@ python -m factory.cli skill-uninstall --source skills/commander-agent-factory --
 ## 安全边界
 
 - 私有需求、客户资料和生成中的工作文件只放在被忽略的 `workshop/` 子目录，不提交到公共仓库。
-- `scripts/verify_public.py` 扫描被 Git 跟踪的文件，发现密钥特征、私有路径、符号链接或不可读文件即失败。
+- `scripts/verify_public.py` 扫描被 Git 跟踪的文件，检测已知密钥特征、敏感路径和不安全文件（符号链接、不可读文件等），发现即失败。它基于确定性规则，不能识别所有秘密，发布前仍需人工确认。
 - 任何金额、权限、外发、部署与不可逆动作都应保留人工确认。
 
 ## 当前状态

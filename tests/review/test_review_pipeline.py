@@ -31,6 +31,43 @@ def test_snapshot_skips_links_and_detects_mutation(tmp_path: Path) -> None:
     assert verify_unchanged(before, snapshot_tree(target)) is False
 
 
+def test_snapshot_hashes_large_files_and_detects_their_mutation(tmp_path: Path) -> None:
+    target = tmp_path / "agent"
+    target.mkdir()
+    (target / "README.md").write_text("stable\n", encoding="utf-8")
+    big = target / "data.bin"
+    payload = bytearray(b"x" * (1_000_000 + 4096))
+    big.write_bytes(payload)
+
+    before = snapshot_tree(target)
+
+    entries = {item.path: item for item in before.files}
+    assert "data.bin" in entries, "large file must be part of the snapshot"
+    assert "data.bin" not in before.skipped_unreadable
+    assert entries["data.bin"].size == len(payload)
+    assert entries["data.bin"].line_count is None
+    assert len(entries["data.bin"].sha256) == 64
+
+    payload[512] = ord(b"y")
+    big.write_bytes(payload)
+    after = snapshot_tree(target)
+    assert verify_unchanged(before, after) is False
+
+
+def test_snapshot_detects_large_file_content_change_at_same_size(tmp_path: Path) -> None:
+    target = tmp_path / "agent"
+    target.mkdir()
+    big = target / "model.bin"
+    big.write_bytes(b"a" * 1_500_000)
+    before = snapshot_tree(target)
+
+    big.write_bytes(b"a" * 749_999 + b"b" + b"a" * 750_000)
+    after = snapshot_tree(target)
+
+    assert before.files[0].size == after.files[0].size
+    assert verify_unchanged(before, after) is False
+
+
 def test_evaluator_is_evidence_backed_and_provisional() -> None:
     minimal = review_agent(ROOT / "tests/fixtures/review/minimal-agent", load_policy("evaluation-policy"))
     assert {finding.severity for finding in minimal.findings} >= {"P1", "P2"}

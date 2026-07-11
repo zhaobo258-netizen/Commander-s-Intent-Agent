@@ -23,7 +23,7 @@ python -m factory.cli verify-repo . --public
 python scripts/build_examples.py
 ```
 
-The generated CREATE package is under `examples/create-regional-manager/output/`; the read-only review report is under `examples/review-minimal-agent/report/`.
+The generated CREATE package is under `examples/create-regional-manager/output/`; the read-only review report is under `examples/review-minimal-agent/report/`. Timestamps in the example reports are synthetic and exist only for reproducibility.
 
 ## Create
 
@@ -51,6 +51,6 @@ The source path is explicit by design. The current wheel does not embed the repo
 
 ## Safety and status
 
-Keep private requirements and customer data in ignored workshop paths. Run `python scripts/verify_public.py` before publication. `0.1.0` is a local release candidate: generated and locally validated do not imply installed, published, or verified in real use. See the [status model](docs/STATUS_MODEL.md).
+Keep private requirements and customer data in ignored workshop paths. Run `python scripts/verify_public.py` before publication: it detects known secret signatures, sensitive paths, and unsafe files with deterministic rules; it does not claim to find every possible secret. `0.1.0` is a local release candidate: generated and locally validated do not imply installed, published, or verified in real use. See the [status model](docs/STATUS_MODEL.md).
 
 Licensed under [MIT](LICENSE). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).

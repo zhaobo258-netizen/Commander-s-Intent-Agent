@@ -11,6 +11,17 @@ from factory.errors import FactoryError, UnsafePathError
 from factory.review.models import FileSnapshot, TreeSnapshot
 
 
+def _stream_sha256(path: Path, chunk_bytes: int = 262_144) -> tuple[str, int]:
+    """Hash a file without loading it into memory; return (hexdigest, size)."""
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as handle:
+        while chunk := handle.read(chunk_bytes):
+            digest.update(chunk)
+            size += len(chunk)
+    return digest.hexdigest(), size
+
+
 def snapshot_tree(root: Path, max_file_bytes: int = 1_000_000) -> TreeSnapshot:
     path = Path(root)
     if path.is_symlink() or not path.is_dir():
@@ -38,30 +49,42 @@ def snapshot_tree(root: Path, max_file_bytes: int = 1_000_000) -> TreeSnapshot:
                 if stat.S_ISLNK(info.st_mode):
                     links.append(relative)
                     continue
-                if not stat.S_ISREG(info.st_mode) or info.st_size > max_file_bytes:
+                if not stat.S_ISREG(info.st_mode):
                     unreadable.append(relative)
                     continue
-                payload = child.read_bytes()
+                if info.st_size > max_file_bytes:
+                    # Large files are streamed so their content is still part
+                    # of the integrity evidence without loading into memory.
+                    sha256, size = _stream_sha256(child)
+                    line_count: int | None = None
+                else:
+                    payload = child.read_bytes()
+                    size = len(payload)
+                    sha256 = hashlib.sha256(payload).hexdigest()
+                    try:
+                        text = payload.decode("utf-8")
+                        line_count = len(text.splitlines())
+                    except UnicodeDecodeError:
+                        line_count = None
             except OSError:
                 unreadable.append(relative)
                 continue
-            try:
-                text = payload.decode("utf-8")
-                line_count = len(text.splitlines())
-            except UnicodeDecodeError:
-                line_count = None
             files.append(
                 FileSnapshot(
                     path=relative,
-                    size=len(payload),
+                    size=size,
                     line_count=line_count,
-                    sha256=hashlib.sha256(payload).hexdigest(),
+                    sha256=sha256,
                 )
             )
     files.sort(key=lambda item: item.path)
     digest = hashlib.sha256()
     for item in files:
-        for record in (item.path.encode("utf-8"), item.sha256.encode("ascii")):
+        for record in (
+            item.path.encode("utf-8"),
+            str(item.size).encode("ascii"),
+            item.sha256.encode("ascii"),
+        ):
             digest.update(len(record).to_bytes(8, "big"))
             digest.update(record)
     for prefix, values in ((b"link", sorted(links)), (b"unreadable", sorted(unreadable))):
