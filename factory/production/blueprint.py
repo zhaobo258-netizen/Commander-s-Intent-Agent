@@ -130,7 +130,8 @@ def _traceability_entries(blueprint: Mapping):
     yield from blueprint["evaluation"]["cases"]
 
 
-def _validate_traceability(blueprint: Mapping, intent: Mapping) -> None:
+def validate_blueprint_traceability(blueprint: Mapping, intent: Mapping) -> None:
+    """Require every declared intent path to resolve in the confirmed intent."""
     for entry in _traceability_entries(blueprint):
         for path in entry["intent_paths"]:
             if _resolve_intent_path(intent, path) is _MISSING:
@@ -196,8 +197,8 @@ def build_blueprint(
     issues = validate_document("agent-blueprint", blueprint)
     if issues:
         raise ContractValidationError(_format_issues("agent-blueprint", issues))
-    _validate_traceability(blueprint, intent_snapshot)
+    validate_blueprint_traceability(blueprint, intent_snapshot)
     return deepcopy(blueprint)
 
 
-__all__ = ["build_blueprint"]
+__all__ = ["build_blueprint", "validate_blueprint_traceability"]

@@ -139,6 +139,7 @@ def test_all_contract_schemas_use_draft_2020_12() -> None:
         "commander-intent",
         "agent-blueprint",
         "factory-job",
+        "factory-manifest",
         "review-report",
     ):
         assert load_schema(kind)["$schema"] == "https://json-schema.org/draft/2020-12/schema"

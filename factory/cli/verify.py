@@ -36,6 +36,7 @@ _SCHEMA_PATHS = (
     "factory/contracts/commander-intent.schema.json",
     "factory/contracts/agent-blueprint.schema.json",
     "factory/contracts/factory-job.schema.json",
+    "factory/contracts/factory-manifest.schema.json",
     "factory/contracts/review-report.schema.json",
 )
 _POLICY_PATHS = (
@@ -45,7 +46,15 @@ _POLICY_PATHS = (
 _TEMPLATE_PATHS = (
     "templates/job/JOB.md.tmpl",
     "templates/job/COMMANDER_INTENT.md.tmpl",
+    "templates/agent/README.md.tmpl",
+    "templates/agent/COMMANDER_INTENT.md.tmpl",
+    "templates/agent/ARCHITECTURE.md.tmpl",
+    "templates/agent/WORKFLOW.md.tmpl",
 )
+_TEMPLATE_TARGETS = {
+    "share/commander-intent-agent-factory/templates/job": _TEMPLATE_PATHS[:2],
+    "share/commander-intent-agent-factory/templates/agent": _TEMPLATE_PATHS[2:],
+}
 _WORKSHOP_FILES = (
     "workshop/README.md",
     "workshop/jobs/.gitkeep",
@@ -62,6 +71,7 @@ _REQUIRED_PACKAGES = (
     "factory.cli",
     "factory.contracts",
     "factory.governance",
+    "factory.interview",
     "factory.production",
 )
 _REQUIRED_PACKAGE_FILES = (
@@ -77,7 +87,11 @@ _REQUIRED_PACKAGE_FILES = (
     "factory/governance/gates.py",
     "factory/governance/policy.py",
     "factory/governance/state_machine.py",
+    "factory/interview/__init__.py",
+    "factory/interview/protocol.py",
     "factory/production/__init__.py",
+    "factory/production/blueprint.py",
+    "factory/production/generator.py",
     "factory/production/jobs.py",
 )
 
@@ -472,6 +486,7 @@ def _verify_metadata(
         package_requirements = (
             ("factory.contracts", _SCHEMA_PATHS),
             ("factory.governance", _POLICY_PATHS),
+            ("factory.interview", ("factory/interview/questions.yaml",)),
         )
         for package, paths in package_requirements:
             patterns = (
@@ -540,20 +555,20 @@ def _verify_metadata(
             if isinstance(setuptools, Mapping)
             else None
         )
-        template_target = "share/commander-intent-agent-factory/templates/job"
-        template_entries = (
-            data_files.get(template_target)
-            if isinstance(data_files, Mapping)
-            else None
-        )
-        for relative in _TEMPLATE_PATHS:
-            if (
-                not isinstance(template_entries, list)
-                or relative not in template_entries
-            ):
-                metadata_failures.append(
-                    f"invalid:pyproject.toml:data-files:{relative}"
-                )
+        for template_target, required_templates in _TEMPLATE_TARGETS.items():
+            template_entries = (
+                data_files.get(template_target)
+                if isinstance(data_files, Mapping)
+                else None
+            )
+            for relative in required_templates:
+                if (
+                    not isinstance(template_entries, list)
+                    or relative not in template_entries
+                ):
+                    metadata_failures.append(
+                        f"invalid:pyproject.toml:data-files:{relative}"
+                    )
 
         if not metadata_failures:
             checks.append("verified:pyproject.toml")

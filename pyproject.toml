@@ -28,6 +28,12 @@ include = ["factory*"]
   "templates/job/JOB.md.tmpl",
   "templates/job/COMMANDER_INTENT.md.tmpl",
 ]
+"share/commander-intent-agent-factory/templates/agent" = [
+  "templates/agent/README.md.tmpl",
+  "templates/agent/COMMANDER_INTENT.md.tmpl",
+  "templates/agent/ARCHITECTURE.md.tmpl",
+  "templates/agent/WORKFLOW.md.tmpl",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

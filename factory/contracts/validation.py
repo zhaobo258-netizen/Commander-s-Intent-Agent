@@ -16,6 +16,7 @@ SCHEMA_FILES = {
     "commander-intent": "commander-intent.schema.json",
     "agent-blueprint": "agent-blueprint.schema.json",
     "factory-job": "factory-job.schema.json",
+    "factory-manifest": "factory-manifest.schema.json",
     "review-report": "review-report.schema.json",
 }
 
