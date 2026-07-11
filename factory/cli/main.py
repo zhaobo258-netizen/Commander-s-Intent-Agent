@@ -6,7 +6,17 @@ from pathlib import Path
 from typing import TextIO
 
 from factory import __version__
+from factory.cli.create import (
+    generate_payload,
+    json_text,
+    next_question_payload,
+    skill_check_payload,
+    skill_install_payload,
+    skill_uninstall_payload,
+    validate_intent_payload,
+)
 from factory.cli.verify import verify_repository
+from factory.errors import GateBlockedError
 from factory.production.jobs import create_job, load_job
 
 
@@ -52,6 +62,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     status_parser = subparsers.add_parser("job-status")
     status_parser.add_argument("job_dir", type=Path)
+
+    question_parser = subparsers.add_parser("next-question")
+    question_parser.add_argument("intent", type=Path)
+
+    intent_parser = subparsers.add_parser("validate-intent")
+    intent_parser.add_argument("intent", type=Path)
+
+    generate_parser = subparsers.add_parser("generate")
+    generate_parser.add_argument("--job-dir", required=True, type=Path)
+    generate_parser.add_argument("--intent", required=True, type=Path)
+    generate_parser.add_argument("--design", required=True, type=Path)
+    generate_parser.add_argument("--template-root", required=True, type=Path)
+
+    for command in ("skill-install", "skill-check", "skill-uninstall"):
+        skill_parser = subparsers.add_parser(command)
+        skill_parser.add_argument("--source", required=True, type=Path)
+        skill_parser.add_argument("--codex-home", required=True, type=Path)
+        if command == "skill-install":
+            skill_parser.add_argument("--mode", choices=("copy", "symlink"), default="copy")
     return parser
 
 
@@ -91,6 +120,38 @@ def main(argv: list[str] | None = None) -> int:
                 sys.stdout,
             )
             return 0
+        if args.command == "next-question":
+            _emit(json_text(next_question_payload(args.intent)), sys.stdout)
+            return 0
+        if args.command == "validate-intent":
+            payload, return_code = validate_intent_payload(args.intent)
+            _emit(json_text(payload), sys.stdout)
+            return return_code
+        if args.command == "generate":
+            _emit(
+                json_text(
+                    generate_payload(
+                        args.job_dir,
+                        args.intent,
+                        args.design,
+                        args.template_root,
+                    )
+                ),
+                sys.stdout,
+            )
+            return 0
+        if args.command == "skill-install":
+            _emit(json_text(skill_install_payload(args.source, args.codex_home, args.mode)), sys.stdout)
+            return 0
+        if args.command == "skill-check":
+            _emit(json_text(skill_check_payload(args.source, args.codex_home)), sys.stdout)
+            return 0
+        if args.command == "skill-uninstall":
+            _emit(json_text(skill_uninstall_payload(args.source, args.codex_home)), sys.stdout)
+            return 0
+    except GateBlockedError as exc:
+        _emit_error(exc)
+        return 2
     except Exception as exc:
         _emit_error(exc)
         return 1
