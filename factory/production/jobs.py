@@ -22,6 +22,7 @@ from factory.errors import (
     UnsafePathError,
 )
 from factory.governance.state_machine import validate_lifecycle_snapshot
+from factory.serialization import strict_json_loads
 
 
 _JOB_DIRECTORIES = ("intake", "evidence", "reports", "output")
@@ -371,11 +372,8 @@ def load_job(job_dir: Path) -> dict:
             f"could not read factory-job status {status_path}: {exc}"
         ) from exc
 
-    def reject_constant(constant: str) -> None:
-        raise ValueError(f"non-standard JSON constant: {constant}")
-
     try:
-        loaded = json.loads(raw_status, parse_constant=reject_constant)
+        loaded = strict_json_loads(raw_status)
     except (json.JSONDecodeError, ValueError) as exc:
         detail = exc.msg if isinstance(exc, json.JSONDecodeError) else str(exc)
         raise ContractValidationError(

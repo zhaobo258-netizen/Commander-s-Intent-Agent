@@ -191,6 +191,31 @@ def test_state_machine_policy_derives_modes_and_states_from_factory_job_schema(
     policy_module.validate_state_machine_policy(extended)
 
 
+def test_state_machine_policy_rejects_schema_state_not_represented() -> None:
+    schema = policy_module.load_schema("factory-job")
+    schema["$defs"]["factory_state"]["enum"].append("ARCHIVED")
+
+    with pytest.raises(ValueError, match="not represented.*ARCHIVED"):
+        policy_module.validate_state_machine_policy(
+            _state_machine_policy(),
+            factory_job_schema=schema,
+        )
+
+
+@pytest.mark.parametrize("automatic_state", ["BLOCKED", "CANCELLED"])
+def test_state_machine_policy_requires_automatic_schema_states(
+    automatic_state: str,
+) -> None:
+    schema = policy_module.load_schema("factory-job")
+    schema["$defs"]["factory_state"]["enum"].remove(automatic_state)
+
+    with pytest.raises(ValueError, match=rf"automatic state.*{automatic_state}"):
+        policy_module.validate_state_machine_policy(
+            _state_machine_policy(),
+            factory_job_schema=schema,
+        )
+
+
 def test_state_machine_policy_requires_reachable_success_terminal() -> None:
     malformed = copy.deepcopy(_state_machine_policy())
     malformed["modes"]["CREATE"]["transitions"] = {

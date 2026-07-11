@@ -9,6 +9,11 @@ from typing import Any
 import yaml
 
 from factory.contracts import load_schema
+from factory.contracts.validation import (
+    SchemaReferenceError,
+    resolve_local_reference,
+)
+from factory.serialization import strict_yaml_load
 
 
 _POLICY_KEYS = {
@@ -81,7 +86,57 @@ def _require_paths(value: object, location: str, *, allow_empty: bool) -> list[s
     return paths
 
 
-def validate_production_gate_policy(policy: Mapping[str, Any]) -> None:
+def _schema_node_for_policy_path(
+    schema: Mapping[str, Any],
+    path: str,
+) -> object:
+    current: object = schema
+    visited_references: set[str] = set()
+    for token in path.removeprefix("/").split("/"):
+        while isinstance(current, Mapping) and "$ref" in current:
+            reference = current["$ref"]
+            if not isinstance(reference, str) or reference in visited_references:
+                raise _policy_error(
+                    f"commander-intent schema does not define policy path {path}"
+                )
+            visited_references.add(reference)
+            try:
+                current = resolve_local_reference(schema, reference)
+            except SchemaReferenceError as exc:
+                raise _policy_error(
+                    f"commander-intent schema does not define policy path {path}"
+                ) from exc
+        if not isinstance(current, Mapping):
+            raise _policy_error(
+                f"commander-intent schema does not define policy path {path}"
+            )
+        properties = current.get("properties")
+        if not isinstance(properties, Mapping) or token not in properties:
+            raise _policy_error(
+                f"commander-intent schema does not define policy path {path}"
+            )
+        current = properties[token]
+    while isinstance(current, Mapping) and "$ref" in current:
+        reference = current["$ref"]
+        if not isinstance(reference, str) or reference in visited_references:
+            raise _policy_error(
+                f"commander-intent schema does not define policy path {path}"
+            )
+        visited_references.add(reference)
+        try:
+            current = resolve_local_reference(schema, reference)
+        except SchemaReferenceError as exc:
+            raise _policy_error(
+                f"commander-intent schema does not define policy path {path}"
+            ) from exc
+    return current
+
+
+def validate_production_gate_policy(
+    policy: Mapping[str, Any],
+    *,
+    commander_intent_schema: Mapping[str, Any] | None = None,
+) -> None:
     """Raise ``ValueError`` when a policy is structurally unsafe to evaluate."""
     if not isinstance(policy, Mapping):
         raise _policy_error("document must be a mapping")
@@ -151,6 +206,21 @@ def validate_production_gate_policy(policy: Mapping[str, Any]) -> None:
         raise _policy_error("section ids must be unique")
     if threshold > maximum_score:
         raise _policy_error("threshold exceeds the maximum section score")
+
+    schema = (
+        load_schema("commander-intent")
+        if commander_intent_schema is None
+        else commander_intent_schema
+    )
+    for path in (
+        *critical_paths,
+        *(
+            path
+            for section in sections
+            for path in section["required_paths"]
+        ),
+    ):
+        _schema_node_for_policy_path(schema, path)
 
 
 def _state_machine_error(message: str) -> ValueError:
@@ -235,6 +305,14 @@ def validate_state_machine_policy(
         raise _state_machine_error("schema_version must be '1.0'")
 
     expected_modes, factory_states = _factory_job_enums(factory_job_schema)
+    missing_automatic_states = sorted(
+        {"BLOCKED", "CANCELLED"} - set(factory_states)
+    )
+    if missing_automatic_states:
+        raise _state_machine_error(
+            "factory-job schema missing automatic state: "
+            f"{', '.join(missing_automatic_states)}"
+        )
     modes = policy["modes"]
     if not isinstance(modes, Mapping):
         raise _state_machine_error("modes must be a mapping")
@@ -250,6 +328,7 @@ def validate_state_machine_policy(
         raise _state_machine_error(f"modes contain unknown schema modes: {rendered}")
 
     known_states = frozenset(factory_states)
+    represented_states = {"BLOCKED", "CANCELLED"}
     for mode in expected_modes:
         mode_policy = modes[mode]
         location = f"modes.{mode}"
@@ -261,6 +340,7 @@ def validate_state_machine_policy(
             mode_policy["terminal_states"],
             f"{location}.terminal_states",
         )
+        represented_states.update(terminal_states)
         unknown_terminal_states = sorted(set(terminal_states) - known_states)
         if unknown_terminal_states:
             raise _state_machine_error(
@@ -283,6 +363,7 @@ def validate_state_machine_policy(
             )
 
         transition_states = set(transitions)
+        represented_states.update(transition_states)
         unknown_sources = sorted(transition_states - known_states, key=str)
         if unknown_sources:
             rendered = ", ".join(str(state) for state in unknown_sources)
@@ -317,6 +398,7 @@ def validate_state_machine_policy(
                     f"{', '.join(sorted(automatic_targets))}"
                 )
             targeted_states.update(targets)
+            represented_states.update(targets)
 
         if "NEW" not in transition_states:
             raise _state_machine_error(
@@ -354,6 +436,13 @@ def validate_state_machine_policy(
                 f"{location}.transitions must reach a reachable successful terminal"
             )
 
+    unrepresented_states = sorted(known_states - represented_states)
+    if unrepresented_states:
+        raise _state_machine_error(
+            "factory-job schema state not represented by any mode: "
+            f"{', '.join(unrepresented_states)}"
+        )
+
 
 PolicyValidator = Callable[[Mapping[str, Any]], None]
 POLICY_REGISTRY: dict[str, tuple[str, PolicyValidator]] = {
@@ -377,7 +466,7 @@ def load_policy(name: str) -> dict:
 
     try:
         resource = files("factory.governance").joinpath(filename)
-        loaded = yaml.safe_load(resource.read_text(encoding="utf-8"))
+        loaded = strict_yaml_load(resource.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         raise _governance_policy_error(
             name,

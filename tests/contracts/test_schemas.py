@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import pytest
 
-from factory.contracts.validation import ValidationIssue, load_schema, validate_document
+import factory.contracts.validation as validation_module
+from factory.contracts.validation import (
+    SchemaReferenceError,
+    ValidationIssue,
+    load_schema,
+    validate_document,
+)
 
 
 @pytest.mark.parametrize(
@@ -140,3 +147,55 @@ def test_all_contract_schemas_use_draft_2020_12() -> None:
 def test_load_schema_rejects_unknown_contract_kind() -> None:
     with pytest.raises(ValueError, match="unknown contract kind"):
         load_schema("unknown")
+
+
+def test_load_schema_rejects_duplicate_json_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = Path("factory/contracts/commander-intent.schema.json").read_text(
+        encoding="utf-8"
+    )
+    duplicate = source.replace(
+        '"title": "Commander Intent",',
+        '"title": "Wrong",\n  "title": "Commander Intent",',
+        1,
+    )
+
+    class FakeResource:
+        def joinpath(self, _filename: str) -> "FakeResource":
+            return self
+
+        def read_text(self, *, encoding: str) -> str:
+            assert encoding == "utf-8"
+            return duplicate
+
+    monkeypatch.setattr(validation_module, "files", lambda _package: FakeResource())
+
+    with pytest.raises(ValueError, match="duplicate JSON object key: title"):
+        load_schema("commander-intent")
+
+
+def test_load_schema_rejects_dangling_local_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = Path("factory/contracts/commander-intent.schema.json").read_text(
+        encoding="utf-8"
+    )
+    dangling = source.replace(
+        '"mission": {"$ref": "#/$defs/mission"}',
+        '"mission": {"$ref": "#/$defs/missing"}',
+        1,
+    )
+
+    class FakeResource:
+        def joinpath(self, _filename: str) -> "FakeResource":
+            return self
+
+        def read_text(self, *, encoding: str) -> str:
+            assert encoding == "utf-8"
+            return dangling
+
+    monkeypatch.setattr(validation_module, "files", lambda _package: FakeResource())
+
+    with pytest.raises(SchemaReferenceError, match="target does not exist"):
+        load_schema("commander-intent")

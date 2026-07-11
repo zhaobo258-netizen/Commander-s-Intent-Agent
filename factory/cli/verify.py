@@ -7,7 +7,7 @@ import fnmatch
 import json
 import re
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,11 +15,20 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
 
+from factory.contracts.validation import (
+    SchemaReferenceError,
+    validate_schema_references,
+)
 from factory.governance.policy import (
     validate_production_gate_policy,
     validate_state_machine_policy,
 )
+from factory.serialization import strict_json_loads, strict_yaml_load
 
 
 _DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
@@ -48,11 +57,13 @@ _WORKSHOP_RULES = (
     "!jobs/.gitkeep",
     "!reviews/.gitkeep",
 )
-_DEPENDENCY_NAME = re.compile(
-    r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)"
-    r"(?:\[([^\]]+)\])?\s*(.*)$"
+_REQUIRED_PACKAGES = (
+    "factory",
+    "factory.cli",
+    "factory.contracts",
+    "factory.governance",
+    "factory.production",
 )
-_MINIMUM_VERSION = re.compile(r"(?:^|,)\s*>=\s*([0-9]+(?:\.[0-9]+)*)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,34 +86,24 @@ def _read_text(
 ) -> str | None:
     candidate = _path(root, relative)
     try:
-        if not candidate.is_file():
+        resolved_root = root.resolve(strict=False)
+        resolved_candidate = candidate.resolve(strict=False)
+        try:
+            resolved_candidate.relative_to(resolved_root)
+        except ValueError:
+            failures.append(f"unsafe:{relative}:outside-root")
+            return None
+        if not resolved_candidate.is_file():
             failures.append(f"missing:{relative}")
             return None
-        return candidate.read_text(encoding="utf-8")
+        return resolved_candidate.read_text(encoding="utf-8")
+    except RuntimeError:
+        failures.append(f"unsafe:{relative}:unresolvable")
     except UnicodeDecodeError:
         failures.append(f"malformed:{relative}:invalid-utf8")
     except OSError:
         failures.append(f"unreadable:{relative}")
     return None
-
-
-def _strict_json(text: str) -> object:
-    def reject_constant(constant: str) -> None:
-        raise ValueError(f"non-standard JSON constant: {constant}")
-
-    def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
-        document: dict[str, object] = {}
-        for key, value in pairs:
-            if key in document:
-                raise ValueError(f"duplicate JSON object key: {key}")
-            document[key] = value
-        return document
-
-    return json.loads(
-        text,
-        parse_constant=reject_constant,
-        object_pairs_hook=reject_duplicate_keys,
-    )
 
 
 def _verify_schemas(
@@ -116,7 +117,7 @@ def _verify_schemas(
         if text is None:
             continue
         try:
-            document = _strict_json(text)
+            document = strict_json_loads(text)
         except (json.JSONDecodeError, ValueError):
             failures.append(f"malformed:{relative}:invalid-json")
             continue
@@ -133,6 +134,11 @@ def _verify_schemas(
             continue
         except Exception:
             failures.append(f"malformed:{relative}:schema-check-failed")
+            continue
+        try:
+            validate_schema_references(document)
+        except SchemaReferenceError as exc:
+            failures.append(f"malformed:{relative}:{exc.kind}")
             continue
         loaded_schemas[relative] = document
         checks.append(f"verified:{relative}")
@@ -155,7 +161,7 @@ def _verify_policies(
         if text is None:
             continue
         try:
-            document = yaml.safe_load(text)
+            document = strict_yaml_load(text)
         except yaml.YAMLError:
             failures.append(f"malformed:{relative}:invalid-yaml")
             continue
@@ -164,7 +170,18 @@ def _verify_policies(
             continue
         try:
             if relative.endswith("production-gates.yaml"):
-                validate_production_gate_policy(document)
+                commander_intent_schema = schemas.get(
+                    "factory/contracts/commander-intent.schema.json"
+                )
+                if commander_intent_schema is None:
+                    failures.append(
+                        f"unverified:{relative}:commander-intent-schema-unavailable"
+                    )
+                    continue
+                validate_production_gate_policy(
+                    document,
+                    commander_intent_schema=commander_intent_schema,
+                )
             else:
                 factory_job_schema = schemas.get(
                     "factory/contracts/factory-job.schema.json"
@@ -186,18 +203,34 @@ def _verify_policies(
         checks.append(f"verified:{relative}")
 
 
-def _canonical_dependency_name(name: str) -> str:
-    return re.sub(r"[-_.]+", "-", name).lower()
+def _specifier_has_minimum(
+    specifiers: SpecifierSet,
+    expected_minimum: str,
+) -> bool:
+    expected = Version(expected_minimum)
+    lower_bounds: list[Version] = []
+    for specifier in specifiers:
+        if specifier.operator not in {">=", ">", "~=", "==", "==="}:
+            continue
+        if "*" in specifier.version:
+            continue
+        try:
+            lower_bounds.append(Version(specifier.version))
+        except InvalidVersion:
+            continue
+    if not lower_bounds:
+        return False
+    declared_floor = max(lower_bounds)
+    if declared_floor < expected:
+        return False
+    candidates = (declared_floor, Version(f"{declared_floor.public}.post1"))
+    return any(
+        specifiers.contains(candidate, prereleases=True)
+        for candidate in candidates
+    )
 
 
-def _version_tuple(value: str) -> tuple[int, ...]:
-    parts = [int(part) for part in value.split(".")]
-    while len(parts) > 1 and parts[-1] == 0:
-        parts.pop()
-    return tuple(parts)
-
-
-def _dependency_meets_minimum(
+def _dependency_meets_requirement(
     dependencies: object,
     expected_name: str,
     expected_minimum: str,
@@ -206,29 +239,25 @@ def _dependency_meets_minimum(
 ) -> bool:
     if not isinstance(dependencies, list):
         return False
-    canonical_expected = _canonical_dependency_name(expected_name)
+    canonical_expected = canonicalize_name(expected_name)
     for item in dependencies:
         if not isinstance(item, str):
             continue
-        requirement, _, _marker = item.partition(";")
-        match = _DEPENDENCY_NAME.fullmatch(requirement)
-        if match is None:
+        try:
+            requirement = Requirement(item)
+        except InvalidRequirement:
             continue
-        name, raw_extras, specifiers = match.groups()
-        if _canonical_dependency_name(name) != canonical_expected:
+        if canonicalize_name(requirement.name) != canonical_expected:
             continue
-        extras = {
-            extra.strip().lower()
-            for extra in (raw_extras or "").split(",")
-            if extra.strip()
-        }
-        if required_extra is not None and required_extra.lower() not in extras:
+        if requirement.marker is not None:
             continue
-        minimums = _MINIMUM_VERSION.findall(specifiers)
-        if any(
-            _version_tuple(minimum) >= _version_tuple(expected_minimum)
-            for minimum in minimums
+        if (
+            required_extra is not None
+            and required_extra.lower()
+            not in {extra.lower() for extra in requirement.extras}
         ):
+            continue
+        if _specifier_has_minimum(requirement.specifier, expected_minimum):
             return True
     return False
 
@@ -236,8 +265,13 @@ def _dependency_meets_minimum(
 def _declares_python_311_floor(requirement: object) -> bool:
     if not isinstance(requirement, str):
         return False
-    minimums = _MINIMUM_VERSION.findall(requirement)
-    return any(_version_tuple(value) == (3, 11) for value in minimums)
+    try:
+        specifiers = SpecifierSet(requirement)
+    except InvalidSpecifier:
+        return False
+    return specifiers.contains(Version("3.11")) and not specifiers.contains(
+        Version("3.10")
+    )
 
 
 def _patterns_cover(filename: str, patterns: object) -> bool:
@@ -309,11 +343,11 @@ def _verify_metadata(
                 "invalid:pyproject.toml:project.requires-python"
             )
         dependencies = project.get("dependencies")
-        if not _dependency_meets_minimum(dependencies, "PyYAML", "6.0"):
+        if not _dependency_meets_requirement(dependencies, "PyYAML", "6.0"):
             metadata_failures.append(
                 "invalid:pyproject.toml:project.dependencies:PyYAML"
             )
-        if not _dependency_meets_minimum(
+        if not _dependency_meets_requirement(
             dependencies,
             "jsonschema",
             "4.21",
@@ -321,6 +355,14 @@ def _verify_metadata(
         ):
             metadata_failures.append(
                 "invalid:pyproject.toml:project.dependencies:jsonschema[format]"
+            )
+        if not _dependency_meets_requirement(
+            dependencies,
+            "packaging",
+            "24.0",
+        ):
+            metadata_failures.append(
+                "invalid:pyproject.toml:project.dependencies:packaging"
             )
 
         scripts = project.get("scripts")
@@ -350,14 +392,42 @@ def _verify_metadata(
             if isinstance(find_config, Mapping)
             else None
         )
-        if not isinstance(includes, list) or not any(
-            isinstance(pattern, str)
-            and fnmatch.fnmatchcase("factory", pattern)
-            for pattern in includes
+        excludes = (
+            find_config.get("exclude", [])
+            if isinstance(find_config, Mapping)
+            else None
+        )
+        if not isinstance(excludes, list) or any(
+            not isinstance(pattern, str) for pattern in excludes
         ):
             metadata_failures.append(
-                "invalid:pyproject.toml:package-discovery:factory"
+                "invalid:pyproject.toml:package-discovery.exclude"
             )
+        include_patterns = (
+            tuple(pattern for pattern in includes if isinstance(pattern, str))
+            if isinstance(includes, list)
+            else ()
+        )
+        exclude_patterns = (
+            tuple(pattern for pattern in excludes if isinstance(pattern, str))
+            if isinstance(excludes, list)
+            else ()
+        )
+        for package in _REQUIRED_PACKAGES:
+            if not any(
+                fnmatch.fnmatchcase(package, pattern)
+                for pattern in include_patterns
+            ):
+                metadata_failures.append(
+                    f"invalid:pyproject.toml:package-discovery:{package}"
+                )
+            if any(
+                fnmatch.fnmatchcase(package, pattern)
+                for pattern in exclude_patterns
+            ):
+                metadata_failures.append(
+                    f"invalid:pyproject.toml:package-excluded:{package}"
+                )
 
         package_requirements = (
             ("factory.contracts", _SCHEMA_PATHS),
@@ -374,6 +444,55 @@ def _verify_metadata(
                 if not _patterns_cover(filename, patterns):
                     metadata_failures.append(
                         f"invalid:pyproject.toml:package-data:{relative}"
+                    )
+
+        exclude_package_data = (
+            setuptools.get("exclude-package-data")
+            if isinstance(setuptools, Mapping)
+            else None
+        )
+        malformed_exclude_packages: set[str] = set()
+        if exclude_package_data is not None and not isinstance(
+            exclude_package_data,
+            Mapping,
+        ):
+            metadata_failures.append(
+                "invalid:pyproject.toml:exclude-package-data"
+            )
+        elif isinstance(exclude_package_data, Mapping):
+            for package, raw_patterns in exclude_package_data.items():
+                if (
+                    not isinstance(package, str)
+                    or not isinstance(raw_patterns, list)
+                    or any(
+                        not isinstance(pattern, str)
+                        for pattern in raw_patterns
+                    )
+                ):
+                    rendered_package = str(package)
+                    malformed_exclude_packages.add(rendered_package)
+                    metadata_failures.append(
+                        "invalid:pyproject.toml:exclude-package-data:"
+                        f"{rendered_package}"
+                    )
+        for package, paths in package_requirements:
+            package_patterns: list[str] = []
+            if isinstance(exclude_package_data, Mapping):
+                for key in ("*", package):
+                    if key in malformed_exclude_packages:
+                        continue
+                    raw_patterns = exclude_package_data.get(key, [])
+                    if isinstance(raw_patterns, list):
+                        package_patterns.extend(
+                            pattern
+                            for pattern in raw_patterns
+                            if isinstance(pattern, str)
+                        )
+            for relative in paths:
+                filename = relative.rsplit("/", 1)[-1]
+                if _patterns_cover(filename, package_patterns):
+                    metadata_failures.append(
+                        f"invalid:pyproject.toml:exclude-package-data:{relative}"
                     )
 
         data_files = (
@@ -428,19 +547,6 @@ def _effective_ignore_lines(text: str) -> tuple[str, ...]:
     )
 
 
-def _gitignore_state(patterns: Sequence[str], relative: str) -> bool:
-    ignored = False
-    for raw_pattern in patterns:
-        negated = raw_pattern.startswith("!")
-        pattern = raw_pattern[1:] if negated else raw_pattern
-        pattern = pattern.removeprefix("/")
-        if not pattern:
-            continue
-        if fnmatch.fnmatchcase(relative, pattern):
-            ignored = not negated
-    return ignored
-
-
 def _verify_workshop(
     root: Path,
     checks: list[str],
@@ -460,28 +566,8 @@ def _verify_workshop(
     if ignore_text is None:
         return
     patterns = _effective_ignore_lines(ignore_text)
-    local_failures: list[str] = []
-    for required in _WORKSHOP_RULES:
-        if required not in patterns:
-            local_failures.append(
-                f"invalid:{relative}:missing-rule:{required}"
-            )
-
-    semantic_examples = (
-        ("jobs/private-job/status.json", True),
-        ("reviews/private-review/status.json", True),
-        ("jobs/.gitkeep", False),
-        ("reviews/.gitkeep", False),
-    )
-    for sample, expected in semantic_examples:
-        actual = _gitignore_state(patterns, sample)
-        if actual == expected:
-            continue
-        outcome = "must-be-ignored" if expected else "must-not-be-ignored"
-        local_failures.append(f"invalid:{relative}:{outcome}:{sample}")
-
-    if local_failures:
-        failures.extend(local_failures)
+    if patterns != _WORKSHOP_RULES:
+        failures.append(f"invalid:{relative}:approved-rules-required")
         return
     checks.append(f"verified:{relative}")
     checks.append("verified:workshop-ignore-semantics")

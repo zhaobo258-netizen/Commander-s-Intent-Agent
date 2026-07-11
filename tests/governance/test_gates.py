@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import pytest
 import yaml
@@ -125,6 +126,40 @@ def test_production_policy_allows_nonempty_safe_confirmed_source_subset(
     policy["confirmed_source_types"] = ["tool_result"]
 
     validate_production_gate_policy(policy)
+
+
+@pytest.mark.parametrize(
+    "mutate_schema",
+    [
+        lambda schema: schema["properties"].pop("mission"),
+        lambda schema: schema["$defs"]["mission"]["properties"].pop("statement"),
+    ],
+)
+def test_production_policy_paths_must_exist_in_injected_intent_schema(
+    production_policy: dict,
+    mutate_schema,
+) -> None:
+    schema = policy_module.load_schema("commander-intent")
+    mutate_schema(schema)
+
+    with pytest.raises(ValueError, match="schema does not define policy path"):
+        validate_production_gate_policy(
+            production_policy,
+            commander_intent_schema=schema,
+        )
+
+
+def test_production_policy_rejects_dangling_ref_at_final_path_node(
+    production_policy: dict,
+) -> None:
+    schema = policy_module.load_schema("commander-intent")
+    schema["properties"]["mission"]["$ref"] = "#/$defs/missing"
+
+    with pytest.raises(ValueError, match="schema does not define policy path"):
+        validate_production_gate_policy(
+            production_policy,
+            commander_intent_schema=schema,
+        )
 
 
 def test_production_ready_intent_scores_100_and_is_ready(
@@ -373,6 +408,82 @@ def test_load_policy_rejects_malformed_policy_with_useful_message(
     monkeypatch.setattr(policy_module, "files", lambda _package: FakeResource())
 
     with pytest.raises(ValueError, match="threshold.*integer"):
+        load_policy("production-gates")
+
+
+@pytest.mark.parametrize(
+    ("needle", "replacement", "duplicate_key"),
+    [
+        (
+            'schema_version: "1.0"',
+            'schema_version: "1.0"\nschema_version: "1.0"',
+            "schema_version",
+        ),
+        (
+            "    required_paths: [/mission/statement, /mission/problem]",
+            (
+                "    required_paths: [/mission/statement, /mission/problem]\n"
+                "    required_paths: [/mission/statement, /mission/problem]"
+            ),
+            "required_paths",
+        ),
+    ],
+)
+def test_load_policy_rejects_duplicate_yaml_keys_recursively(
+    monkeypatch: pytest.MonkeyPatch,
+    needle: str,
+    replacement: str,
+    duplicate_key: str,
+) -> None:
+    source = Path("factory/governance/production-gates.yaml").read_text(
+        encoding="utf-8"
+    )
+    payload = source.replace(needle, replacement, 1)
+
+    class FakeResource:
+        def joinpath(self, _filename: str) -> "FakeResource":
+            return self
+
+        def read_text(self, *, encoding: str) -> str:
+            assert encoding == "utf-8"
+            return payload
+
+    monkeypatch.setattr(policy_module, "files", lambda _package: FakeResource())
+
+    with pytest.raises(
+        ValueError,
+        match=rf"duplicate mapping key.*{duplicate_key}",
+    ):
+        load_policy("production-gates")
+
+
+def test_load_policy_rejects_yaml_merge_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = Path("factory/governance/production-gates.yaml").read_text(
+        encoding="utf-8"
+    )
+    payload = source.replace(
+        "    points: 15\n    required_paths: [/mission/statement, /mission/problem]",
+        (
+            "    <<: &mission_score\n"
+            "      points: 15\n"
+            "    required_paths: [/mission/statement, /mission/problem]"
+        ),
+        1,
+    )
+
+    class FakeResource:
+        def joinpath(self, _filename: str) -> "FakeResource":
+            return self
+
+        def read_text(self, *, encoding: str) -> str:
+            assert encoding == "utf-8"
+            return payload
+
+    monkeypatch.setattr(policy_module, "files", lambda _package: FakeResource())
+
+    with pytest.raises(ValueError, match="YAML merge keys are not allowed"):
         load_policy("production-gates")
 
 

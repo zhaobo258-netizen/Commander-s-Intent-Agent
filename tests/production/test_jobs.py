@@ -263,6 +263,31 @@ def test_load_job_rejects_non_standard_json_constants(
         load_job(job_dir)
 
 
+def test_load_job_rejects_duplicate_status_key_without_last_key_wins(
+    tmp_path: Path,
+) -> None:
+    job_dir = create_job(
+        tmp_path,
+        "CREATE",
+        "strict-duplicate-agent",
+        NOW,
+        job_id="job-strict-duplicate",
+    )
+    status_path = job_dir / "status.json"
+    payload = status_path.read_text(encoding="utf-8").replace(
+        '"status": "NEW"',
+        '"status": "DELIVERED",\n  "status": "NEW"',
+        1,
+    )
+    status_path.write_text(payload, encoding="utf-8")
+
+    with pytest.raises(
+        ContractValidationError,
+        match="malformed status.*duplicate JSON object key: status",
+    ):
+        load_job(job_dir)
+
+
 def test_load_job_returns_independent_data(tmp_path: Path) -> None:
     job_dir = create_job(
         tmp_path,
