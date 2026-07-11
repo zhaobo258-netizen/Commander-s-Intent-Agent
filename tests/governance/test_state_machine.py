@@ -441,6 +441,136 @@ def test_nonblocked_job_rejects_latest_transition_inconsistent_with_status(
         )
 
 
+def test_nonnew_nonblocked_job_requires_transition_history(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+    inconsistent = _job_at(new_job, "DISCOVERY")
+    inconsistent["transitions"] = []
+
+    with pytest.raises(TransitionError, match="transition history"):
+        state_machine.transition(
+            inconsistent,
+            "INTERVIEWING",
+            "continue",
+            ["evidence/continue.md"],
+            datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_new_job_rejects_nonempty_transition_history(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+    new_job["transitions"] = [
+        {
+            "from": "DISCOVERY",
+            "to": "NEW",
+            "trigger": "invalid_rewind",
+            "evidence": ["evidence/rewind.md"],
+            "at": "2026-07-11T09:00:00+00:00",
+        }
+    ]
+
+    with pytest.raises(TransitionError, match="NEW.*transition history"):
+        state_machine.transition(
+            new_job,
+            "DISCOVERY",
+            "scope_received",
+            ["evidence/scope.md"],
+            datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_blocked_job_requires_transition_history(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+    blocked = _job_at(new_job, "DISCOVERY")
+    blocked["status"] = "BLOCKED"
+    blocked["transitions"] = []
+
+    with pytest.raises(TransitionError, match="BLOCKED.*transition history"):
+        state_machine.transition(
+            blocked,
+            "DISCOVERY",
+            "owner_answered",
+            ["evidence/owner-answer.md"],
+            datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_blocked_job_requires_latest_transition_to_blocked(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+    now = datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc)
+    blocked = state_machine.transition(
+        _job_at(new_job, "DISCOVERY"),
+        "BLOCKED",
+        "needs_owner_input",
+        ["evidence/blocker.md"],
+        now,
+    )
+    blocked["transitions"][-1]["to"] = "DISCOVERY"
+
+    with pytest.raises(TransitionError, match="latest transition.*BLOCKED"):
+        state_machine.transition(
+            blocked,
+            "DISCOVERY",
+            "owner_answered",
+            ["evidence/owner-answer.md"],
+            now,
+        )
+
+
+def test_blocked_job_requires_latest_source_to_match_checkpoint(
+    new_job: dict,
+) -> None:
+    state_machine = _state_machine_module()
+    now = datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc)
+    blocked = state_machine.transition(
+        _job_at(new_job, "DISCOVERY"),
+        "BLOCKED",
+        "needs_owner_input",
+        ["evidence/blocker.md"],
+        now,
+    )
+    blocked["transitions"][-1]["from"] = "INTERVIEWING"
+
+    with pytest.raises(TransitionError, match="latest transition.*checkpoint"):
+        state_machine.transition(
+            blocked,
+            "DISCOVERY",
+            "owner_answered",
+            ["evidence/owner-answer.md"],
+            now,
+        )
+
+
+def test_valid_blocked_history_resumes_and_appends_resume_transition(
+    new_job: dict,
+) -> None:
+    state_machine = _state_machine_module()
+    now = datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc)
+    blocked = state_machine.transition(
+        _job_at(new_job, "DISCOVERY"),
+        "BLOCKED",
+        "needs_owner_input",
+        ["evidence/blocker.md"],
+        now,
+    )
+
+    resumed = state_machine.transition(
+        blocked,
+        "DISCOVERY",
+        "owner_answered",
+        ["evidence/owner-answer.md"],
+        now,
+    )
+
+    assert resumed["checkpoint"]["state"] == "DISCOVERY"
+    assert resumed["transitions"][-1] == {
+        "from": "BLOCKED",
+        "to": "DISCOVERY",
+        "trigger": "owner_answered",
+        "evidence": ["evidence/owner-answer.md"],
+        "at": now.isoformat(),
+    }
+
+
 def test_transition_rejects_invalid_factory_job_contract(new_job: dict) -> None:
     state_machine = _state_machine_module()
     del new_job["job_id"]

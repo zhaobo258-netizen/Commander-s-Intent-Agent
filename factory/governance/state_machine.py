@@ -72,6 +72,42 @@ def _validated_evidence(evidence: object) -> list[str]:
     return list(evidence)
 
 
+def _validate_transition_history(
+    job: Mapping,
+    current: str,
+    checkpoint_state: str,
+) -> None:
+    history = job["transitions"]
+    if current == "NEW":
+        if history:
+            raise TransitionError("NEW job must have empty transition history")
+        return
+
+    if not history:
+        raise TransitionError(
+            f"{current} job requires non-empty transition history"
+        )
+
+    latest = history[-1]
+    if current == "BLOCKED":
+        if latest["to"] != "BLOCKED":
+            raise TransitionError(
+                "factory job latest transition must end at BLOCKED"
+            )
+        if latest["from"] != checkpoint_state:
+            raise TransitionError(
+                "factory job latest transition source is inconsistent with "
+                "checkpoint state"
+            )
+        return
+
+    if latest["to"] != current:
+        raise TransitionError(
+            "factory job latest transition is inconsistent with status: "
+            f"{latest['to']} != {current}"
+        )
+
+
 def transition(
     job: Mapping,
     target: str,
@@ -93,6 +129,13 @@ def transition(
 
     current = job["status"]
     checkpoint_state = job["checkpoint"]["state"]
+    if current != "BLOCKED" and current != checkpoint_state:
+        raise TransitionError(
+            "factory job status is inconsistent with checkpoint state: "
+            f"{current} != {checkpoint_state}"
+        )
+    _validate_transition_history(job, current, checkpoint_state)
+
     if current == "BLOCKED":
         try:
             resume_state_targets = allowed_next(job["mode"], checkpoint_state)
@@ -107,17 +150,6 @@ def transition(
         resume_targets = (checkpoint_state, "CANCELLED")
         if target not in resume_targets:
             raise TransitionError(f"illegal transition: {current} -> {target}")
-    else:
-        if current != checkpoint_state:
-            raise TransitionError(
-                "factory job status is inconsistent with checkpoint state: "
-                f"{current} != {checkpoint_state}"
-            )
-        if job["transitions"] and job["transitions"][-1]["to"] != current:
-            raise TransitionError(
-                "factory job latest transition is inconsistent with status: "
-                f"{job['transitions'][-1]['to']} != {current}"
-            )
 
     if current != "BLOCKED" and target not in allowed_next(job["mode"], current):
         raise TransitionError(f"illegal transition: {current} -> {target}")
