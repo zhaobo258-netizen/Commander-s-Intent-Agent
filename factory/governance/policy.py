@@ -188,9 +188,15 @@ def _require_state_list(value: object, location: str) -> list[str]:
     return value
 
 
-def _factory_job_enums() -> tuple[tuple[str, ...], tuple[str, ...]]:
+def _factory_job_enums(
+    factory_job_schema: Mapping[str, Any] | None = None,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     try:
-        schema = load_schema("factory-job")
+        schema = (
+            load_schema("factory-job")
+            if factory_job_schema is None
+            else factory_job_schema
+        )
         modes = schema["properties"]["mode"]["enum"]
         states = schema["$defs"]["factory_state"]["enum"]
     except (KeyError, TypeError) as exc:
@@ -215,7 +221,11 @@ def _factory_job_enums() -> tuple[tuple[str, ...], tuple[str, ...]]:
     return tuple(modes), tuple(states)
 
 
-def validate_state_machine_policy(policy: Mapping[str, Any]) -> None:
+def validate_state_machine_policy(
+    policy: Mapping[str, Any],
+    *,
+    factory_job_schema: Mapping[str, Any] | None = None,
+) -> None:
     """Raise ``ValueError`` when a factory state-machine policy is unsafe."""
     if not isinstance(policy, Mapping):
         raise _state_machine_error("document must be a mapping")
@@ -224,7 +234,7 @@ def validate_state_machine_policy(policy: Mapping[str, Any]) -> None:
     if policy["schema_version"] != "1.0":
         raise _state_machine_error("schema_version must be '1.0'")
 
-    expected_modes, factory_states = _factory_job_enums()
+    expected_modes, factory_states = _factory_job_enums(factory_job_schema)
     modes = policy["modes"]
     if not isinstance(modes, Mapping):
         raise _state_machine_error("modes must be a mapping")
