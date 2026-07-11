@@ -72,44 +72,123 @@ def _validated_evidence(evidence: object) -> list[str]:
     return list(evidence)
 
 
+def _audit_datetime(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _validate_now(job: Mapping, now: datetime) -> None:
+    audit_times = [
+        ("created_at", job["created_at"]),
+        ("updated_at", job["updated_at"]),
+        ("checkpoint.updated_at", job["checkpoint"]["updated_at"]),
+    ]
+    if job["transitions"]:
+        audit_times.append(
+            ("latest transition.at", job["transitions"][-1]["at"])
+        )
+
+    for label, value in audit_times:
+        if now < _audit_datetime(value):
+            raise TransitionError(f"transition now precedes {label}")
+
+
+def _checkpoint_next_action(mode: str, current: str, target: str) -> str:
+    if target == "BLOCKED":
+        return f"resume:{current}"
+    if target == "CANCELLED":
+        return "cancelled"
+    if not allowed_next(mode, target):
+        return f"completed:{target}"
+    return f"continue:{target}"
+
+
 def _validate_transition_history(
     job: Mapping,
+    mode: str,
     current: str,
     checkpoint_state: str,
 ) -> None:
     history = job["transitions"]
-    if current == "NEW":
-        if not history:
-            return
-        latest = history[-1]
-        if latest["from"] == "BLOCKED" and latest["to"] == "NEW":
-            return
-        raise TransitionError(
-            "NEW job transition history must be empty or end BLOCKED -> NEW"
-        )
-
     if not history:
-        raise TransitionError(
-            f"{current} job requires non-empty transition history"
-        )
-
-    latest = history[-1]
-    if current == "BLOCKED":
-        if latest["to"] != "BLOCKED":
+        if current != "NEW":
             raise TransitionError(
-                "factory job latest transition must end at BLOCKED"
+                f"{current} job requires non-empty transition history"
             )
-        if latest["from"] != checkpoint_state:
+        if checkpoint_state != "NEW":
             raise TransitionError(
-                "factory job latest transition source is inconsistent with "
-                "checkpoint state"
+                "factory job status is inconsistent with checkpoint state: "
+                f"NEW != {checkpoint_state}"
             )
         return
 
+    latest = history[-1]
     if latest["to"] != current:
         raise TransitionError(
             "factory job latest transition is inconsistent with status: "
             f"{latest['to']} != {current}"
+        )
+    if current == "BLOCKED" and latest["from"] != checkpoint_state:
+        raise TransitionError(
+            "factory job latest transition source is inconsistent with "
+            "checkpoint state"
+        )
+
+    if history[0]["from"] == "BLOCKED":
+        raise TransitionError("transition history cannot start from BLOCKED")
+
+    resume_state: str | None = None
+    previous_target: str | None = None
+    previous_at: datetime | None = None
+    for record in history:
+        source = record["from"]
+        target = record["to"]
+        record_at = _audit_datetime(record["at"])
+        if previous_at is not None and record_at < previous_at:
+            raise TransitionError(
+                "transition history timestamps must be nondecreasing"
+            )
+        if previous_target is not None and source != previous_target:
+            raise TransitionError(
+                "transition history must be continuous: "
+                f"expected {previous_target}, found {source}"
+            )
+
+        if source == "BLOCKED":
+            if resume_state is None or target not in (resume_state, "CANCELLED"):
+                raise TransitionError(
+                    f"{current} job transition history contains illegal edge: "
+                    f"{source} -> {target}"
+                )
+            resume_state = None
+        else:
+            try:
+                next_states = allowed_next(mode, source)
+            except TransitionError as exc:
+                raise TransitionError(
+                    f"{current} job transition history contains illegal edge: "
+                    f"{source} -> {target}"
+                ) from exc
+            if target not in next_states:
+                raise TransitionError(
+                    f"{current} job transition history contains illegal edge: "
+                    f"{source} -> {target}"
+                )
+            if target == "BLOCKED":
+                resume_state = source
+
+        previous_target = target
+        previous_at = record_at
+
+    if current == "BLOCKED":
+        if checkpoint_state != resume_state:
+            raise TransitionError(
+                "factory job latest transition source is inconsistent with "
+                "checkpoint state"
+            )
+    elif checkpoint_state != current:
+        raise TransitionError(
+            "factory job status is inconsistent with checkpoint state: "
+            f"{current} != {checkpoint_state}"
         )
 
 
@@ -134,12 +213,13 @@ def transition(
 
     current = job["status"]
     checkpoint_state = job["checkpoint"]["state"]
-    if current != "BLOCKED" and current != checkpoint_state:
-        raise TransitionError(
-            "factory job status is inconsistent with checkpoint state: "
-            f"{current} != {checkpoint_state}"
-        )
-    _validate_transition_history(job, current, checkpoint_state)
+    _validate_transition_history(
+        job,
+        job["mode"],
+        current,
+        checkpoint_state,
+    )
+    _validate_now(job, now)
 
     if current == "BLOCKED":
         try:
@@ -160,6 +240,7 @@ def transition(
         raise TransitionError(f"illegal transition: {current} -> {target}")
 
     at = now.isoformat()
+    next_action = _checkpoint_next_action(job["mode"], current, target)
     transitioned = deepcopy(job)
     transitioned["status"] = target
     transitioned["updated_at"] = at
@@ -167,7 +248,7 @@ def transition(
         {
             "sequence": transitioned["checkpoint"]["sequence"] + 1,
             "state": current if target == "BLOCKED" else target,
-            "next_action": f"continue:{target}",
+            "next_action": next_action,
             "updated_at": at,
             "evidence_ref": evidence_refs[-1],
         }

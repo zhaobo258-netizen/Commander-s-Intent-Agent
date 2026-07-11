@@ -38,6 +38,10 @@ def _policy_error(message: str) -> ValueError:
     return ValueError(f"malformed production policy: {message}")
 
 
+def _governance_policy_error(name: str, message: str) -> ValueError:
+    return ValueError(f"malformed governance policy {name}: {message}")
+
+
 def _require_exact_keys(
     value: Mapping[str, Any],
     expected: set[str],
@@ -317,6 +321,29 @@ def validate_state_machine_policy(policy: Mapping[str, Any]) -> None:
                 f"{', '.join(missing_tables)}"
             )
 
+        reachable = {"NEW"}
+        pending = ["NEW"]
+        while pending:
+            source = pending.pop()
+            for target in transitions.get(source, ()):
+                if target not in reachable:
+                    reachable.add(target)
+                    if target in transitions:
+                        pending.append(target)
+
+        unreachable_sources = sorted(transition_states - reachable)
+        if unreachable_sources:
+            raise _state_machine_error(
+                f"{location}.transitions has unreachable transition source: "
+                f"{', '.join(unreachable_sources)}"
+            )
+
+        successful_terminals = set(terminal_states) - {"CANCELLED"}
+        if not successful_terminals & reachable:
+            raise _state_machine_error(
+                f"{location}.transitions must reach a reachable successful terminal"
+            )
+
 
 PolicyValidator = Callable[[Mapping[str, Any]], None]
 POLICY_REGISTRY: dict[str, tuple[str, PolicyValidator]] = {
@@ -338,14 +365,17 @@ def load_policy(name: str) -> dict:
     except KeyError as exc:
         raise ValueError(f"unknown governance policy: {name}") from exc
 
-    resource = files("factory.governance").joinpath(filename)
     try:
+        resource = files("factory.governance").joinpath(filename)
         loaded = yaml.safe_load(resource.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
-        raise _policy_error(f"could not load {filename}: {exc}") from exc
+        raise _governance_policy_error(
+            name,
+            f"could not load {filename}: {exc}",
+        ) from exc
 
     if not isinstance(loaded, Mapping):
-        raise _policy_error("document must be a mapping")
+        raise _governance_policy_error(name, "document must be a mapping")
     policy = dict(loaded)
     validator(policy)
     return policy

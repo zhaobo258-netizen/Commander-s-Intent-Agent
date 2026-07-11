@@ -394,3 +394,64 @@ def test_load_policy_normalizes_non_string_unknown_key_to_value_error(
 
     with pytest.raises(ValueError, match="unknown keys.*7"):
         load_policy("production-gates")
+
+
+@pytest.mark.parametrize(
+    ("payload", "read_error"),
+    [
+        ("[unterminated", None),
+        ("- not\n- a\n- mapping\n", None),
+        (None, OSError("policy file unavailable")),
+    ],
+)
+def test_generic_policy_load_failures_name_the_governance_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: str | None,
+    read_error: OSError | None,
+) -> None:
+    monkeypatch.setitem(
+        policy_module.POLICY_REGISTRY,
+        "broken-policy",
+        ("broken-policy.yaml", lambda _policy: None),
+    )
+
+    class FakeResource:
+        def joinpath(self, filename: str) -> "FakeResource":
+            assert filename == "broken-policy.yaml"
+            return self
+
+        def read_text(self, *, encoding: str) -> str:
+            assert encoding == "utf-8"
+            if read_error is not None:
+                raise read_error
+            assert payload is not None
+            return payload
+
+    monkeypatch.setattr(policy_module, "files", lambda _package: FakeResource())
+
+    with pytest.raises(
+        ValueError,
+        match="malformed governance policy broken-policy",
+    ):
+        load_policy("broken-policy")
+
+
+def test_load_policy_preserves_state_validator_specific_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    malformed = load_policy("state-machine")
+    del malformed["modes"]
+
+    class FakeResource:
+        def joinpath(self, filename: str) -> "FakeResource":
+            assert filename == "state-machine.yaml"
+            return self
+
+        def read_text(self, *, encoding: str) -> str:
+            assert encoding == "utf-8"
+            return yaml.safe_dump(malformed)
+
+    monkeypatch.setattr(policy_module, "files", lambda _package: FakeResource())
+
+    with pytest.raises(ValueError, match="malformed state-machine policy"):
+        load_policy("state-machine")

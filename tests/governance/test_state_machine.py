@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import importlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -61,6 +61,21 @@ def _job_at(
         }
     ]
     return job
+
+
+def _history_record(
+    source: str,
+    target: str,
+    *,
+    at: str = "2026-07-11T09:00:00+00:00",
+) -> dict:
+    return {
+        "from": source,
+        "to": target,
+        "trigger": f"{source.lower()}_to_{target.lower()}",
+        "evidence": [f"evidence/{source.lower()}-{target.lower()}.md"],
+        "at": at,
+    }
 
 
 def test_loads_state_machine_policy_for_all_factory_job_modes() -> None:
@@ -172,6 +187,34 @@ def test_state_machine_policy_derives_modes_and_states_from_factory_job_schema(
     monkeypatch.setattr(policy_module, "load_schema", lambda _kind: schema)
 
     policy_module.validate_state_machine_policy(extended)
+
+
+def test_state_machine_policy_requires_reachable_success_terminal() -> None:
+    malformed = copy.deepcopy(_state_machine_policy())
+    malformed["modes"]["CREATE"]["transitions"] = {
+        "NEW": ["DISCOVERY"],
+        "DISCOVERY": ["NEW"],
+    }
+
+    with pytest.raises(ValueError, match="reachable successful terminal"):
+        policy_module.validate_state_machine_policy(malformed)
+
+
+def test_state_machine_policy_rejects_unreachable_transition_source() -> None:
+    malformed = copy.deepcopy(_state_machine_policy())
+    malformed["modes"]["CREATE"]["transitions"]["REVIEWING"] = ["DELIVERED"]
+
+    with pytest.raises(ValueError, match="unreachable transition source.*REVIEWING"):
+        policy_module.validate_state_machine_policy(malformed)
+
+
+def test_state_machine_policy_allows_authorized_interview_correction_cycle() -> None:
+    policy = copy.deepcopy(_state_machine_policy())
+
+    assert policy["modes"]["CREATE"]["transitions"][
+        "INTENT_CONFIRMATION"
+    ] == ["READY", "INTERVIEWING"]
+    policy_module.validate_state_machine_policy(policy)
 
 
 def test_create_new_allows_discovery_then_emergency_targets() -> None:
@@ -351,6 +394,20 @@ def test_transition_to_blocked_preserves_resume_state_in_checkpoint(
     }
 
 
+def test_transition_to_blocked_sets_resume_next_action(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+
+    blocked = state_machine.transition(
+        _job_at(new_job, "DISCOVERY"),
+        "BLOCKED",
+        "needs_owner_input",
+        ["evidence/blocker.md"],
+        datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc),
+    )
+
+    assert blocked["checkpoint"]["next_action"] == "resume:DISCOVERY"
+
+
 def test_blocked_job_can_resume_only_to_checkpoint_state(new_job: dict) -> None:
     state_machine = _state_machine_module()
     now = datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc)
@@ -405,6 +462,63 @@ def test_blocked_job_can_be_cancelled(new_job: dict) -> None:
 
     assert cancelled["status"] == "CANCELLED"
     assert cancelled["checkpoint"]["state"] == "CANCELLED"
+
+
+def test_cancelled_checkpoint_next_action_is_cancelled(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+
+    cancelled = state_machine.transition(
+        new_job,
+        "CANCELLED",
+        "owner_cancelled",
+        ["evidence/cancellation.md"],
+        datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc),
+    )
+
+    assert cancelled["checkpoint"]["next_action"] == "cancelled"
+
+
+@pytest.mark.parametrize(
+    ("mode", "current", "previous", "target"),
+    [
+        ("CREATE", "CANDIDATE_READY", "VALIDATING", "DELIVERED"),
+        ("REVIEW", "REVIEWING", "REVIEW_INTAKE", "REVIEW_READY"),
+        ("OPTIMIZE", "VALIDATING", "OPTIMIZING", "CANDIDATE_READY"),
+    ],
+)
+def test_success_terminal_checkpoint_next_action_is_completed(
+    new_job: dict,
+    mode: str,
+    current: str,
+    previous: str,
+    target: str,
+) -> None:
+    state_machine = _state_machine_module()
+    job = _job_at(new_job, current, mode=mode, previous=previous)
+
+    completed = state_machine.transition(
+        job,
+        target,
+        "terminal_reached",
+        ["evidence/terminal.md"],
+        datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc),
+    )
+
+    assert completed["checkpoint"]["next_action"] == f"completed:{target}"
+
+
+def test_nonterminal_checkpoint_next_action_remains_continue(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+
+    discovery = state_machine.transition(
+        new_job,
+        "DISCOVERY",
+        "scope_received",
+        ["evidence/scope.md"],
+        datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc),
+    )
+
+    assert discovery["checkpoint"]["next_action"] == "continue:DISCOVERY"
 
 
 def test_nonblocked_job_rejects_checkpoint_state_inconsistent_with_status(
@@ -611,6 +725,125 @@ def test_resumed_new_job_can_continue_to_discovery(new_job: dict) -> None:
     assert validate_document("factory-job", discovery) == ()
 
 
+def test_history_rejects_illegal_create_edge_from_reviewing(
+    new_job: dict,
+) -> None:
+    state_machine = _state_machine_module()
+    inconsistent = _job_at(new_job, "VALIDATING", previous="REVIEWING")
+
+    with pytest.raises(TransitionError, match="transition history"):
+        state_machine.transition(
+            inconsistent,
+            "CANDIDATE_READY",
+            "validation_complete",
+            ["evidence/validation.md"],
+            datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_history_rejects_disconnected_consecutive_edges(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+    inconsistent = _job_at(new_job, "INTENT_CONFIRMATION")
+    inconsistent["transitions"] = [
+        _history_record("NEW", "DISCOVERY"),
+        _history_record("INTERVIEWING", "INTENT_CONFIRMATION"),
+    ]
+
+    with pytest.raises(TransitionError, match="continuous"):
+        state_machine.transition(
+            inconsistent,
+            "READY",
+            "intent_confirmed",
+            ["evidence/intent.md"],
+            datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_history_rejects_cross_mode_state_even_when_status_is_valid(
+    new_job: dict,
+) -> None:
+    state_machine = _state_machine_module()
+    inconsistent = _job_at(new_job, "DISCOVERY")
+    inconsistent["transitions"] = [
+        _history_record("REVIEW_INTAKE", "REVIEWING"),
+        _history_record("REVIEWING", "DISCOVERY"),
+    ]
+
+    with pytest.raises(TransitionError, match="transition history"):
+        state_machine.transition(
+            inconsistent,
+            "INTERVIEWING",
+            "continue_discovery",
+            ["evidence/discovery.md"],
+            datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_history_rejects_illegal_earlier_edge_when_latest_matches_status(
+    new_job: dict,
+) -> None:
+    state_machine = _state_machine_module()
+    inconsistent = _job_at(new_job, "VALIDATING", previous="PRODUCING")
+    inconsistent["transitions"] = [
+        _history_record("NEW", "DISCOVERY"),
+        _history_record("DISCOVERY", "PRODUCING"),
+        _history_record("PRODUCING", "VALIDATING"),
+    ]
+
+    with pytest.raises(TransitionError, match="DISCOVERY -> PRODUCING"):
+        state_machine.transition(
+            inconsistent,
+            "CANDIDATE_READY",
+            "validation_complete",
+            ["evidence/validation.md"],
+            datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_partial_history_cannot_start_from_blocked(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+    inconsistent = copy.deepcopy(new_job)
+    inconsistent["transitions"] = [_history_record("BLOCKED", "NEW")]
+
+    with pytest.raises(TransitionError, match="start.*BLOCKED"):
+        state_machine.transition(
+            inconsistent,
+            "DISCOVERY",
+            "scope_received",
+            ["evidence/scope.md"],
+            datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_partial_history_rejects_terminal_source(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+    inconsistent = _job_at(new_job, "VALIDATING", previous="DELIVERED")
+
+    with pytest.raises(TransitionError, match="DELIVERED -> VALIDATING"):
+        state_machine.transition(
+            inconsistent,
+            "CANDIDATE_READY",
+            "validation_complete",
+            ["evidence/validation.md"],
+            datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_valid_partial_history_can_continue(valid_job: dict) -> None:
+    state_machine = _state_machine_module()
+
+    transitioned = state_machine.transition(
+        copy.deepcopy(valid_job),
+        "CANDIDATE_READY",
+        "validation_complete",
+        ["evidence/validation.md"],
+        datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc),
+    )
+
+    assert transitioned["status"] == "CANDIDATE_READY"
+    assert transitioned["transitions"][-1]["from"] == "VALIDATING"
+
+
 def test_transition_rejects_invalid_factory_job_contract(new_job: dict) -> None:
     state_machine = _state_machine_module()
     del new_job["job_id"]
@@ -674,6 +907,147 @@ def test_transition_requires_timezone_aware_now(new_job: dict) -> None:
             "scope_received",
             ["evidence/scope.md"],
             datetime(2026, 7, 11, 10, 0),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "error_label"),
+    [
+        ("created_at", "created_at"),
+        ("updated_at", "updated_at"),
+        ("checkpoint.updated_at", "checkpoint.updated_at"),
+    ],
+)
+def test_transition_now_cannot_precede_job_audit_time(
+    new_job: dict,
+    field: str,
+    error_label: str,
+) -> None:
+    state_machine = _state_machine_module()
+    baseline = "2026-07-11T09:00:00+00:00"
+    new_job["created_at"] = baseline
+    new_job["updated_at"] = baseline
+    new_job["checkpoint"]["updated_at"] = baseline
+    if field == "checkpoint.updated_at":
+        new_job["checkpoint"]["updated_at"] = "2026-07-11T10:00:00+00:00"
+    else:
+        new_job[field] = "2026-07-11T10:00:00+00:00"
+
+    with pytest.raises(TransitionError, match=error_label):
+        state_machine.transition(
+            new_job,
+            "DISCOVERY",
+            "scope_received",
+            ["evidence/scope.md"],
+            datetime(2026, 7, 11, 9, 30, tzinfo=timezone.utc),
+        )
+
+
+def test_transition_now_cannot_precede_latest_transition(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+    job = _job_at(new_job, "DISCOVERY")
+    job["created_at"] = "2026-07-11T08:00:00+00:00"
+    job["updated_at"] = "2026-07-11T09:00:00+00:00"
+    job["checkpoint"]["updated_at"] = "2026-07-11T09:00:00+00:00"
+    job["transitions"][-1]["at"] = "2026-07-11T10:00:00+00:00"
+
+    with pytest.raises(TransitionError, match="latest transition.at"):
+        state_machine.transition(
+            job,
+            "INTERVIEWING",
+            "continue",
+            ["evidence/continue.md"],
+            datetime(2026, 7, 11, 9, 30, tzinfo=timezone.utc),
+        )
+
+
+def test_audit_times_compare_mixed_offsets_by_instant(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+    new_job["created_at"] = "2026-07-11T10:00:00+08:00"
+    new_job["updated_at"] = "2026-07-11T11:00:00+08:00"
+    new_job["checkpoint"]["updated_at"] = "2026-07-11T10:00:00+08:00"
+
+    with pytest.raises(TransitionError, match="updated_at"):
+        state_machine.transition(
+            new_job,
+            "DISCOVERY",
+            "scope_received",
+            ["evidence/scope.md"],
+            datetime(
+                2026,
+                7,
+                11,
+                10,
+                30,
+                tzinfo=timezone(timedelta(hours=8)),
+            ),
+        )
+
+
+def test_mixed_offset_now_later_by_instant_is_allowed(new_job: dict) -> None:
+    state_machine = _state_machine_module()
+    audit_time = "2026-07-11T10:00:00+08:00"
+    new_job["created_at"] = audit_time
+    new_job["updated_at"] = audit_time
+    new_job["checkpoint"]["updated_at"] = audit_time
+
+    transitioned = state_machine.transition(
+        new_job,
+        "DISCOVERY",
+        "scope_received",
+        ["evidence/scope.md"],
+        datetime(2026, 7, 11, 3, 0, tzinfo=timezone.utc),
+    )
+
+    assert transitioned["status"] == "DISCOVERY"
+
+
+def test_transition_now_equal_to_latest_audit_time_is_allowed(
+    new_job: dict,
+) -> None:
+    state_machine = _state_machine_module()
+    job = _job_at(new_job, "DISCOVERY")
+    job["created_at"] = "2026-07-11T09:00:00+00:00"
+    job["updated_at"] = "2026-07-11T10:00:00+00:00"
+    job["checkpoint"]["updated_at"] = "2026-07-11T10:00:00+00:00"
+    job["transitions"][-1]["at"] = "2026-07-11T10:00:00+00:00"
+
+    transitioned = state_machine.transition(
+        job,
+        "INTERVIEWING",
+        "continue",
+        ["evidence/continue.md"],
+        datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc),
+    )
+
+    assert transitioned["status"] == "INTERVIEWING"
+
+
+def test_existing_transition_timestamps_must_be_nondecreasing(
+    new_job: dict,
+) -> None:
+    state_machine = _state_machine_module()
+    inconsistent = _job_at(new_job, "INTERVIEWING", previous="DISCOVERY")
+    inconsistent["transitions"] = [
+        _history_record(
+            "NEW",
+            "DISCOVERY",
+            at="2026-07-11T09:10:00+00:00",
+        ),
+        _history_record(
+            "DISCOVERY",
+            "INTERVIEWING",
+            at="2026-07-11T09:00:00+00:00",
+        ),
+    ]
+
+    with pytest.raises(TransitionError, match="timestamps.*nondecreasing"):
+        state_machine.transition(
+            inconsistent,
+            "INTENT_CONFIRMATION",
+            "interview_complete",
+            ["evidence/interview.md"],
+            datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc),
         )
 
 
