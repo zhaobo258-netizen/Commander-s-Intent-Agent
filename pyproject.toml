@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "commander-intent-agent-factory"
+version = "0.1.0"
+description = "A commander's-intent-driven factory for creating, reviewing, and optimizing AI agents."
+requires-python = ">=3.11"
+dependencies = ["PyYAML>=6.0", "jsonschema>=4.21"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+commander-factory = "factory.cli.main:main"
+
+[tool.setuptools.packages.find]
+include = ["factory*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
