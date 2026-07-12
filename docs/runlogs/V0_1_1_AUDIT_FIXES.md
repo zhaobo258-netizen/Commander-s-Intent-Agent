@@ -73,3 +73,11 @@
   加固建议已登记为上述技术债。
 - 变更仅提交到 `codex/commander-agent-factory-v0.1` 功能分支；未合并 main，
   未 force-push，未触碰任何真实客户数据。
+
+## 归档与交接（2026-07-12）
+
+- 修复已提交 `afa89a8` 并普通推送到 `origin/codex/commander-agent-factory-v0.1`
+  （历史调和 merge `61f6030`，无 force-push）。
+- 新增 `docs/HANDOFF.md` 作为新 AI 会话的全局入口：仓库/分支结构、时间线、
+  当前真实状态、修复落点、环境与验证命令、技术债与工作纪律。
+- `AGENTS.md` 首行加入 HANDOFF 指针。
