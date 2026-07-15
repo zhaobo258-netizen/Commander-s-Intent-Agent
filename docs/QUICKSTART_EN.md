@@ -6,8 +6,10 @@
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
-python -m factory.cli verify-repo . --public
+python -m factory.cli verify-repo .
 ```
+
+A normal extracted archive does not need Git metadata. Use `--public` only as the maintainer gate before publishing a public Git repository.
 
 ## CREATE
 

@@ -19,8 +19,10 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
 python -m factory.cli --version
-python -m factory.cli verify-repo . --public
+python -m factory.cli verify-repo .
 ```
+
+普通压缩包不需要 Git 就能完成上述自检。`verify-repo . --public` 是维护者发布公开 Git 仓库前使用的附加门禁。
 
 直接体验完整 CREATE 流程：
 
@@ -65,6 +67,14 @@ python -m factory.cli skill-uninstall --source skills/commander-agent-factory --
 ```
 
 从源码运行时必须明确传入 `--source`。当前 wheel 不内嵌仓库顶层 Skill，因此安装 Python 包不等于安装 Codex Skill。
+
+客户最短用法是让 Codex 打开本文件夹，然后直接输入：
+
+```text
+使用 commander-agent-factory，帮我创建一个 Agent。请走 CREATE 流程，一次只问我一个问题；信息确认完整后再生成工程包。
+```
+
+也可以从[客户快速使用指南](客户快速使用指南.md)复制 CREATE、REVIEW 和 OPTIMIZE 的现成提示词。
 
 ## 安全边界
 

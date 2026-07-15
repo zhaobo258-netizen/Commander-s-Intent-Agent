@@ -19,9 +19,11 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
 python -m factory.cli --version
-python -m factory.cli verify-repo . --public
+python -m factory.cli verify-repo .
 python scripts/build_examples.py
 ```
+
+This verification works in a normal extracted archive without Git metadata. `verify-repo . --public` is an additional maintainer gate for a public Git repository.
 
 The generated CREATE package is under `examples/create-regional-manager/output/`; the read-only review report is under `examples/review-minimal-agent/report/`. Timestamps in the example reports are synthetic and exist only for reproducibility.
 

@@ -1,8 +1,8 @@
 # Commander Intent Agent Factory
 
-New session? Read [docs/HANDOFF.md](docs/HANDOFF.md) first for the current state, branch discipline, and verification sequence.
+New session? Read [README.md](README.md) and [docs/QUICKSTART.md](docs/QUICKSTART.md) first, then use [skills/commander-agent-factory/SKILL.md](skills/commander-agent-factory/SKILL.md) as the Agent-factory entry.
 
-Use [skills/commander-agent-factory/SKILL.md](skills/commander-agent-factory/SKILL.md) as the Agent-factory entry. Route work to CREATE, REVIEW, or OPTIMIZE and load only the matching reference.
+Route work to CREATE, REVIEW, or OPTIMIZE and load only the matching reference.
 
 Treat `factory/contracts/` and `factory/governance/` as machine-readable truth. Keep multi-step jobs private under `workshop/`. REVIEW is read-only. OPTIMIZE requires explicit approval and edits only an isolated candidate.
 

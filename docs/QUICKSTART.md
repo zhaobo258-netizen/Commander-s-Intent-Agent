@@ -6,8 +6,10 @@
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
-python -m factory.cli verify-repo . --public
+python -m factory.cli verify-repo .
 ```
+
+普通压缩包不要求包含 Git 仓库。`--public` 只用于维护者发布公开 Git 仓库前扫描 Git 跟踪文件。
 
 ## 2. CREATE：从目标到 Agent
 

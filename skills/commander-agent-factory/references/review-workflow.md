@@ -16,7 +16,7 @@
 
 ## Boundary
 
-REVIEW is read-only. A request to fix findings must become a separate OPTIMIZE job. Until deterministic M3 review commands exist in the current checkout, return only a structural review draft marked unverified; do not claim a completed factory review.
+REVIEW is read-only. A request to fix findings must become a separate OPTIMIZE job. Use the deterministic `python -m factory.cli review` command and report a completed factory review only when its report and evidence snapshot are present and valid. If that command is unavailable or fails, return only a structural review draft marked unverified.
 
 ## Output
 

@@ -17,7 +17,7 @@
 
 ## Boundary
 
-Without approval, produce a plan only. Until deterministic M3 optimize commands exist in the current checkout, return a structural proposal marked unverified; do not simulate approval, mutation, or validation in prose.
+Without approval, produce a plan only. Use the deterministic `optimize-prepare`, `optimize-diff`, and `optimize-finalize` commands for mutation and validation. If any required command is unavailable or fails, return a structural proposal marked unverified; do not simulate approval, mutation, or validation in prose.
 
 ## Output
 
