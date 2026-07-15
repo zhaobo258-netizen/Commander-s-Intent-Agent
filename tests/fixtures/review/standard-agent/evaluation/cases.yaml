@@ -1,0 +1,5 @@
+cases:
+  - {type: Golden, description: complete input}
+  - {type: Failure, description: malformed input}
+  - {type: Boundary, description: forbidden action}
+  - {type: Unknown, description: missing evidence}

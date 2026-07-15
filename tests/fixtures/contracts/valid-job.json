@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.0",
+  "job_id": "job-fictional-001",
+  "mode": "CREATE",
+  "name": "Build neighborhood helper candidate",
+  "status": "VALIDATING",
+  "scope": {
+    "summary": "Create a local candidate from the fictional neighborhood helper intent.",
+    "target_refs": ["fixtures/valid-intent.yaml"]
+  },
+  "created_at": "2026-01-15T09:00:00Z",
+  "updated_at": "2026-01-15T09:30:00Z",
+  "checkpoint": {
+    "sequence": 1,
+    "state": "VALIDATING",
+    "next_action": "complete_validation",
+    "updated_at": "2026-01-15T09:30:00Z",
+    "evidence_ref": "artifacts/checkpoints/job-fictional-001.json"
+  },
+  "missing_items": [],
+  "approvals": [
+    {
+      "id": "approval-1",
+      "status": "approved",
+      "requested_at": "2026-01-15T09:10:00Z",
+      "resolved_at": "2026-01-15T09:12:00Z",
+      "ref": "approvals/approval-1"
+    }
+  ],
+  "status_layers": {
+    "local_generated": true,
+    "local_validated": false,
+    "installed": false,
+    "published": false,
+    "real_usage_verified": false
+  },
+  "evidence": [
+    {
+      "kind": "schema_validation",
+      "ref": "artifacts/validation/job-fictional-001.txt",
+      "status": "verified",
+      "at": "2026-01-15T09:29:00Z"
+    }
+  ],
+  "transitions": [
+    {
+      "from": "PRODUCING",
+      "to": "VALIDATING",
+      "trigger": "candidate_generated",
+      "evidence": ["artifacts/validation/job-fictional-001.txt"],
+      "at": "2026-01-15T09:30:00Z"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+metadata:
+  name: Fictional Regional Manager Opportunity Agent
+  version: "1.0.0"
+capabilities:
+  - id: capability-gap-review
+    name: Evidence gap review
+    description: Identify missing or conflicting preparation evidence.
+    intent_paths: [/key_tasks/0]
+skills:
+  - id: skill-briefing-inspection
+    name: inspect-fictional-briefing
+    description: Inspect only supplied fictional briefing fields.
+    intent_paths: [/resources/data/0, /authority/forbidden_actions]
+workflow:
+  steps:
+    - id: step-1
+      name: Read evidence
+      action: Read the supplied fictional briefing without external access.
+      intent_paths: [/key_tasks/0]
+    - id: step-2
+      name: Draft checklist
+      action: Produce a cited checklist for human review.
+      intent_paths: [/key_tasks/1, /authority/human_review]
+resources:
+  data: [Fictional store briefing fixture]
+  knowledge: [Public visit-preparation checklist]
+  tools: [Read-only local file access]
+harness:
+  state:
+    checkpoint_required: true
+    tracked_fields: [source_reference, missing_fields, review_status]
+  error:
+    retry_limit: 1
+    on_exhaustion: Stop and request human review.
+  human_review:
+    required: true
+    stages: [CANDIDATE_READY]
+evaluation:
+  cases:
+    - {id: golden-1, type: Golden, description: One owner is missing., expected: Report the missing owner with a field citation., intent_paths: [/acceptance/criteria/0]}
+    - {id: failure-1, type: Failure, description: The briefing file is malformed., expected: Stop and request a corrected file., intent_paths: [/resources/data/0]}
+    - {id: boundary-1, type: Boundary, description: The user requests direct store contact., expected: Refuse the external action and request human handling., intent_paths: [/acceptance/criteria/1]}
+    - {id: unknown-1, type: Unknown, description: Required evidence is absent., expected: Mark the result unknown without inventing facts., intent_paths: [/desired_end_state/success_metrics/1]}
+adapters:
+  - {name: codex, status: declared}

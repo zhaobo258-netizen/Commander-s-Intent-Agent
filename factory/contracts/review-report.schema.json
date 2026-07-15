@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://commander-agent-factory.local/contracts/review-report.schema.json",
+  "title": "Review Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "target",
+    "scope",
+    "evidence",
+    "findings",
+    "quality",
+    "verdict",
+    "status_layers",
+    "unverified"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "target": {"$ref": "#/$defs/target"},
+    "scope": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/non_empty_string"}
+    },
+    "evidence": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/evidence_record"}
+    },
+    "findings": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/finding"}
+    },
+    "quality": {"$ref": "#/$defs/quality"},
+    "verdict": {"$ref": "#/$defs/non_empty_string"},
+    "status_layers": {"$ref": "#/$defs/status_layers"},
+    "unverified": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/non_empty_string"}
+    }
+  },
+  "$defs": {
+    "non_empty_string": {
+      "type": "string",
+      "minLength": 1
+    },
+    "date_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref"],
+      "properties": {
+        "kind": {"$ref": "#/$defs/non_empty_string"},
+        "ref": {"$ref": "#/$defs/non_empty_string"}
+      }
+    },
+    "evidence_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref", "status", "at"],
+      "properties": {
+        "kind": {"$ref": "#/$defs/non_empty_string"},
+        "ref": {"$ref": "#/$defs/non_empty_string"},
+        "status": {
+          "enum": ["verified", "inferred", "unverified"]
+        },
+        "at": {"$ref": "#/$defs/date_time"},
+        "path": {"$ref": "#/$defs/non_empty_string"},
+        "line_start": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "line_end": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$"
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "severity",
+        "title",
+        "impact",
+        "recommendation",
+        "evidence",
+        "evidence_status"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/non_empty_string"},
+        "severity": {
+          "enum": ["P0", "P1", "P2", "P3"]
+        },
+        "title": {"$ref": "#/$defs/non_empty_string"},
+        "impact": {"$ref": "#/$defs/non_empty_string"},
+        "recommendation": {"$ref": "#/$defs/non_empty_string"},
+        "evidence": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/evidence_record"}
+        },
+        "evidence_status": {
+          "enum": ["verified", "inferred", "unverified"]
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layers"],
+      "properties": {
+        "layers": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/quality_layer"}
+        }
+      }
+    },
+    "quality_layer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status", "notes"],
+      "properties": {
+        "name": {"$ref": "#/$defs/non_empty_string"},
+        "status": {"$ref": "#/$defs/non_empty_string"},
+        "notes": {"$ref": "#/$defs/non_empty_string"}
+      }
+    },
+    "status_layers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "local_generated",
+        "local_validated",
+        "installed",
+        "published",
+        "real_usage_verified"
+      ],
+      "properties": {
+        "local_generated": {"type": "boolean"},
+        "local_validated": {"type": "boolean"},
+        "installed": {"type": "boolean"},
+        "published": {"type": "boolean"},
+        "real_usage_verified": {"type": "boolean"}
+      }
+    }
+  }
+}

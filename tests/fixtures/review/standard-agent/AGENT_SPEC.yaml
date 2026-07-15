@@ -1,0 +1,6 @@
+schema_version: "1.0"
+mission: Inspect fictional preparation forms.
+capabilities: [gap-detection]
+tools: [read-only-file]
+human_review: required
+recovery: request-human-review

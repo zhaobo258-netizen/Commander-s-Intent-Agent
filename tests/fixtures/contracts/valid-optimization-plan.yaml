@@ -1,0 +1,11 @@
+schema_version: "1.0"
+target: /tmp/fictional-agent
+baseline_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+intent_change: false
+approved_by_user: true
+approved_at: "2026-07-11T12:00:00+00:00"
+changes:
+  - Improve novice-readable instructions.
+acceptance:
+  - Candidate passes structural validation.
+rollback: Delete the candidate and keep the source unchanged.

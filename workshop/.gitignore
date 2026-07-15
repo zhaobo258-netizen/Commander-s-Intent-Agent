@@ -1,0 +1,4 @@
+jobs/*
+reviews/*
+!jobs/.gitkeep
+!reviews/.gitkeep

@@ -1,0 +1,62 @@
+{
+  "schema_version": "1.0",
+  "target": {
+    "kind": "agent-blueprint",
+    "ref": "fixtures/valid-blueprint.yaml"
+  },
+  "scope": [
+    "intent traceability",
+    "local validation evidence"
+  ],
+  "evidence": [
+    {
+      "kind": "fixture_validation",
+      "ref": "artifacts/reviews/fixture-validation.txt",
+      "status": "verified",
+      "at": "2026-01-15T10:00:00Z"
+    }
+  ],
+  "findings": [
+    {
+      "id": "finding-1",
+      "severity": "P3",
+      "title": "Usage evidence is not yet available",
+      "impact": "The candidate cannot be described as verified in real use.",
+      "recommendation": "Run an approved fictional scenario before changing the usage layer.",
+      "evidence": [
+        {
+          "kind": "fixture_validation",
+          "ref": "artifacts/reviews/fixture-validation.txt",
+          "status": "verified",
+          "at": "2026-01-15T10:00:00Z"
+        }
+      ],
+      "evidence_status": "verified"
+    }
+  ],
+  "quality": {
+    "layers": [
+      {
+        "name": "contract_validity",
+        "status": "passed",
+        "notes": "The fixture conforms to the declared contract."
+      },
+      {
+        "name": "real_usage",
+        "status": "not_evidenced",
+        "notes": "No real-use run is in review scope."
+      }
+    ]
+  },
+  "verdict": "Locally valid candidate; real usage remains unverified.",
+  "status_layers": {
+    "local_generated": true,
+    "local_validated": true,
+    "installed": false,
+    "published": false,
+    "real_usage_verified": false
+  },
+  "unverified": [
+    "Installation, publication, and real usage were not evaluated."
+  ]
+}

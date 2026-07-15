@@ -1,0 +1,12 @@
+schema_version: "1.0"
+weights:
+  intent: 20
+  capability: 20
+  execution: 20
+  outcome: 30
+  evolution: 10
+required_files:
+  intent: COMMANDER_INTENT.md
+  blueprint: AGENT_SPEC.yaml
+  readme: README.md
+  evaluation: evaluation/cases.yaml
